@@ -1,7 +1,6 @@
 ---
 title: "STAT 425 Final Project"
 subtitle: "House Price Prediction in King County, USA"
-author: "Xinyan Yang & Yahan Zhang"
 date: "December 18, 2017"
 output:
   pdf_document: default
