@@ -1,0 +1,373 @@
+---
+title: "STAT 425 Final Project"
+subtitle: "House Price Prediction in King County, USA"
+author: "Xinyan Yang & Yahan Zhang"
+date: "December 18, 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r set-options, message=FALSE, warning=FALSE, include=FALSE}
+# setting some default chunk options
+# figures will be centered
+# code will be displayed unless `echo = TRUE` is set for a chunk
+# messages are suppressed
+# warnings are suppressed
+knitr::opts_chunk$set(fig.align = "center", echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+#Initalization
+library(readr)
+library(caret)
+library(GGally)
+library(corrgram)
+library(VIF)
+library(MASS)
+library(UScensus2000cdp)
+library(ggmap)
+library(car)
+library(faraway)
+library(randomForest)
+```
+
+# Introduction
+
+This report is about house price prediction in King County which includes Seattle. The data comes from Kaggle(https://www.kaggle.com/harlfoxem/housesalesprediction) and includes homes sold between May 2014 and May 2015. Our goal is to build a linear regression model to predict the house prices and also try to find out some meaningful results about the dataset by doing data visualization or building random forest and ANOVA model.
+
+# Data Preprocessing
+The original dataset contains 19 house features plus the price and the id columns, along with 21613 observations. First, we did some data cleaning. Since the yr_renovated variable contains only 0 or the year that the house was renovated, we converted it into a binary variable indicating whether the house was renovated or not. Then, since the built year has a large scale, we converted it into the existing years using 2017 minus the built year. Moreover, we also remove the id, date and zipcode because we think these variables have little to do with the target variable house prices.        
+
+
+```{r, message=FALSE, warning=FALSE}
+#import the data and do some data preprocessing
+kc = read_csv("kc_house_data.csv")
+
+#convert the year renovate variable to be binary
+kc$yr_renovated = ifelse(kc$yr_renovated > 0, 1, 0)
+kc$yr_renovated = as.factor(kc$yr_renovated)
+
+#convert the built year to be years
+kc$years = 2017 - kc$yr_built
+
+#delete the id, date and zipcode column
+kc = kc[, -c(1:2, 13, 17)]
+kc = kc[, -12]
+```
+
+
+
+We also find that there are two groups of variables which may mingled with each other. They are sqft_living and sqft_ling15, sqft_lot and sqft_lot15 while the latter one refers to the area in 2015, which may indicating some renovation. Also by checking the boxplot below, we can find that the former ones have a more right-skewed distribution, therefore we decide to remove the sqft_living and sqft_lot variables.
+
+```{r, echo=FALSE}
+#check the box plot of sqrt_living vs sqft_living15, sqft_lot and sqft_lot15
+par(mfrow = c(1, 2))
+boxplot(kc[, c(4, 15)], title = "Boxplot of Sqft_living and sqft_living15")
+boxplot(kc[, c(5, 16)], title = "Boxplot of sqft_lot and sqft_lot15")
+
+#delete the sqrt_living and sqrt_lot
+kc = kc[, -c(4:5)]
+```
+
+
+```{r, eval=FALSE, include=FALSE}
+#split the training and test data
+#kc_idx = createDataPartition(kc$price, p = 0.5, list = FALSE)
+#kc_trn = kc[kc_idx,]
+#kc_tst = kc[-kc_idx,]
+```
+
+After all the data cleaning and preprocessing, here's a single row of dataset.
+```{r}
+knitr::kable(kc[1, c(1:7)])
+knitr::kable(kc[1, c(8:15)])
+```
+
+
+
+# Data visualization
+
+
+**The Response Variable**
+First it is important to check the distribution of our response variable price to make sure if we need to perform some transformation of it.
+```{r, include=FALSE}
+#check the distribution of price and log(price)
+par(mfrow = c(1, 2))
+histogram(kc$price, col = "pink")
+histogram(log(kc$price), col = "pink")
+```
+
+As we can see from the above plot, the original price has a right-skewed distribution while log trnasformation of price would have a more normal distribution, we decided to use log transformation of price as our response variable.
+
+**Continuous Variables**
+
+Then we want to check the correlation realtionships between proce and continuous variables so we plot the following figures using different powerful visualization packages like GGally.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#check the correlation between predictors using ggpairs package
+#Checking Relationship between price, sqft_basement, sqft_living, sqft lot and years
+plot1 = ggpairs(
+    data = kc,
+    columns = c(1, 9, 13:15),
+    mapping = aes(color = "darkorange"),
+    axisLabels = "show"
+    )
+plot1
+
+```
+
+The first figure plotted by ggpairs function shows the realtionships between the price and a few continuous variables.  We can also notice that there may have an outlier that have a very large value in bedroome variable and several points that have large sqft_lot15 value.
+
+
+
+**Categorical Variables**
+
+For the categorical variables, we want to assess the relationships between price and several categories of different variables and also the correlations between variables themselves. For example, we first want to test if having a waterfront is related to a higher house value. We can use the boxplot to visualize it.
+
+
+```{r}
+p = ggplot(kc, aes(factor(waterfront), price))
+p + geom_boxplot(varwidth = TRUE, fill = "white", colour = "#3366FF", outlier.colour = "red", outlier.shape = 1) + coord_flip()
+```
+
+From the above plot, we can get the following information. First, the width of no waterfront box plot is greatly larger than the waterfront box plot, which suggests that most observations fall in the group of no waterfront. Also, the length of no waterfront box plot is significantly shorter than the waterfront box plot, which means that overall, house prices in the no waterfront group are very close to each other while it differs greatly in waterfront group. Moreover, the shape difference of these two distributions suggest that the waterfront group would have a higher sell price than the other one.
+
+Similarly, we can run the test on yr_renovated variable which only has two groups.
+```{r}
+p = ggplot(kc, aes(factor(yr_renovated), price))
+p + geom_boxplot(varwidth = TRUE, fill = "white", colour = "#3366FF", outlier.colour = "red", outlier.shape = 1) + coord_flip()
+```
+
+This plot tells us that most houses have not been renovated and the price of renovated houses would slightly higher than the non-renovated group.
+
+
+```{r, echo=FALSE}
+#check the correlation between price and some variables that may be correlated with each other: floors, bedrooms, bathrooms, waterfront, view, condition, grade
+corrgram(
+    kc[, c(1:8)],
+    lower.panel = panel.cor,
+    upper.panel = panel.pie,
+    cor.method = "pearson",
+    col.regions = colorRampPalette(c("red", "darkorange",
+  "white", "dodgerblue", "navy"))
+    )
+```
+
+This figure was obtained by corrgram package, which can give us a more straightforward impression of which two variables have a large correlation coefficient. For example, bedrooms, bathrooms and floors have a large correlation with each other, which means some of them need to be removed in the later regrssion procedure to avoid the multicollinearity issue. We can also notice that waterfront and view has a large correlation coefficien. Moreover, the response variable price has correlation with all of these variables except condition.
+
+
+
+**Visualize the house price on the map**
+
+Since we have longitude and latitude variables in our dataset, we can explore the relationship between the house price and geographical location in the Seattle city by creating a map to show the information.
+
+Here we define the house as expensive house if its price is over 1 million dollars. Then we plot all expensive houses on the map.
+```{r}
+#Basemap
+data("washington.cdp")
+seamap = subset(washington.cdp, washington.cdp$name == 'Seattle')
+seamap = SpatialPolygons(seamap@polygons, seamap@plotOrder, 
+                         proj4string = CRS(proj4string(seamap)))
+```
+
+```{r}
+#House Data as Spatial Data
+cos = as.matrix(kc[, c(11:12)])
+hse = as.data.frame(kc[, -c(11:12)])
+hs.pts = SpatialPointsDataFrame(cos, hse, proj4string = CRS(proj4string(seamap)))
+#hs.sea = subset(hs.pts, !is.na(hs.pts %over% seamap))
+```
+
+
+```{r}
+#choose data with price over than 1 million
+millions = subset(hs.pts, price > 1000000)
+```
+
+
+```{r, include=FALSE}
+g = ggplot(seamap, aes(x = long, y = lat, group = group))
+g = g + geom_polygon(fill = 'lightblue')
+millions.df = as.data.frame(millions@coords)
+g = g + geom_point(data = millions.df, aes(x = long, y = lat), inherit.aes = FALSE)
+g + coord_map() + ggtitle('Seattle Homes for Over $1M') + xlim(-122.45, -122.22) + ylim(47.48, 47.74)
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+sea.ggmap =
+    get_map(location = 'Seattle', 
+            source = 'stamen', 
+            zoom = 11, 
+            maptype = 'toner-lite')
+    g = ggmap(sea.ggmap)
+    g = g + geom_point(data = millions.df, 
+                   aes(x = long, y = lat), 
+                   inherit.aes = FALSE, 
+                   color = 'dodgerblue', 
+                   alpha = 0.2 )
+    g + ggtitle('$1 Million Houses in ggmap') + xlim(-122.45, -122.22) + ylim(47.48, 47.74)
+```
+
+It can be seen that most expensive houses are located in the northern part of the Seattle city or by the sea, from which we can conclude that maybe the northern part of Seattle is more livable.
+
+
+
+# Data Analysis
+
+
+**Linear Regression Model**
+
+We first choose to perform a linear regression of log transformation of price on all house attributes and use stepwise method to help us select variables.
+```{r, echo=TRUE}
+fit = lm(log(price) ~., data = kc[, -c(11:12)])
+step(fit, direction = "both", trace = FALSE)
+```
+
+The stepwise selection removes the sqft_lot15 variable for its insignificant coefficient. Next by checking the VIF values of variables, we decide to remove the variable with the largest VIF value which is bathroom in order to solve the multicoliearity issue mentioned before.
+
+
+```{r, echo=TRUE}
+#check the vif value of predictors
+vif(fit)
+```
+
+
+```{r, echo=TRUE}
+#fit the lm model again without the sqft_lot15 and bathrooms
+fit2 = lm(log(price) ~., data = kc[, -c(11:12, 3, 14)])
+par(mfrow = c(2, 2))
+plot(fit2) #the residual plots
+```
+
+In general, the residual plot shows a shapeless cloud and there's no clear pattern in it. The qq plot shows a basically straight line. However, We can notice that there are several points with high cook's distance or residuals, therefore we did some following tests to test the high-leverage points, outliers and high-influential points.
+
+
+```{r, echo=TRUE}
+#check high-leverage points
+n = 21613
+p = 11
+lev = influence(fit2)$hat
+high_lev = lev[lev > 2*p/n]
+halfnorm(lev, 4, labs = row.names(kc), ylab = "Leverages") 
+#the 15871st observation  has the largest leverage
+```
+
+```{r, echo=TRUE}
+#check for outliers
+jack = rstudent(fit2)
+qt(.05 / (2 * n), n - p - 1) # Bonferroni correction
+sort(abs(jack), decreasing = TRUE)[1:5] #the 18333rd is the outlier
+```
+
+
+```{r, echo=TRUE}
+#Check for high influential points.
+cook = cooks.distance(fit2)
+halfnorm(cook, labs = row.names(kc), ylab = "Cook's distances")
+#the 8451st and 18849th have larger cook's distance than others
+```
+
+ 
+ 
+By checking the studentized residuals using Bonferroni Correction, we know that the 18333rd observation is the outlier. And that the 8451st and the 18849th observation both have large cook's distances, therefore we decide to remove these three observations to fit the final model. 
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+fit3 = lm(log(price) ~., data = kc[-c(8451, 18333, 18849), -c(11:12, 3, 14)])
+summary(fit3)
+```
+
+The final model has 10 variables in total and all of them are significant. We can also notice that all coefficients are positive, which are the same as our intuition.
+
+The R-squared is about 0.64, which is acceptable.
+
+
+**Building a random forest model for comparison with linear regression model**
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+#build a random forest model using all predictors
+set.seed(100)
+rf_mod = randomForest(price ~ ., data =  kc[-c(8451, 18333, 18849), ])
+```
+
+Although the predicting accuracy is not important in this case, we still want to look at the performances of random forest and linear regression model in predicting price. Here we use the root-mean-square error(RMSE) as the measure of predicting error. RMSE is the square root of the average of squared errors(which is the square of the difference between prediction value and observed value).
+
+```{r, echo=TRUE}
+#write a function to compute RMSE
+calc_rmse <- function(pre_mod, actual){
+    sqrt(mean((pre_mod - actual)^2))
+}
+```
+
+```{r, echo=TRUE}
+rf_rmse = calc_rmse(predict(rf_mod, newdata = kc[-c(8451, 18333, 18849), ]), kc[-c(8451, 18333, 18849),]$price)
+lm_rmse = calc_rmse(predict(fit3, newdata = kc[-c(8451, 18333, 18849), -c(11:12, 3, 14)]), kc[-c(8451, 18333, 18849),]$price)
+rf_rmse
+lm_rmse
+```
+
+We can see that the RMSE of random forest model is greatly smaller than the linear regression model, which is not surprising at all since random forest can greatly increase the variance while decrease the bias at the same time for its unique property of randomly selecting predictors at each node.
+
+Here we want to focus on the difference of these two models in picking important variables. 
+```{r, echo=TRUE}
+varImpPlot(rf_mod)
+```
+
+
+The random forest model was built using all predictors including the latitude and longitude, we can see that the most important variables selected by the random forest are differ from the linear regression model.
+
+The *most five important* variables selected by RF are grade, latitude, sqft_living15, bathrooms and longitude and only two of these variables are in the final linear model(which are grade and sqft_living15). 
+
+*Latitude and Longitude* obviously could influence the price of house, which we proved in the map visualization before. However, considering that the relationship is nonlinear, we delete them at the first beginning when building the linear model, which resulted in the loss of important information. 
+
+The *bathrooms* variable was removed at the step of checking multi-colinearity issue for its high VIF value. However, random forest put it in a more important place compared to the highly-correlated variable bedroom, which we guess the reason is that the random forest prefers continuous variables or categorical variables with many levels under the circumstance that two variables both have a strong correlation with the price variable.
+
+The similarities between these two models are that both the *grade and sqft_living15* variable was considered vital to predict the price, which is not surprising at all since both these two variables have high correlation coefficient with the price(0.585 and 0.67).
+
+
+**Testing the interaction effect between waterfront and square footage of the living room using ANOVA**
+
+The waterfront is a binary variable indicating whether the house has a view to a waterfront. We want to test whether there is an interaction between waterfront and square footage of the living room. We fit an additive model, Model 1 and a full model including the interaction term, Model 2, excluding the three extreme observations. Then we run an ANOVA over the two models.
+
+```{r, echo=TRUE}
+Model1 = lm(log(price) ~ waterfront+sqft_living15, data = kc[-c(8451, 18333, 18849),])
+Model2 = lm(log(price) ~ waterfront*sqft_living15, data = kc[-c(8451, 18333, 18849),])
+anova(Model1,Model2)
+```
+
+The p-value is very significant, meaning Model 2 is preferred in this case.
+
+```{r, echo=TRUE}
+summary(Model2)
+```
+
+In the full model, i.e.,
+$$
+log(price)=\beta_0+\beta_1 sqftliving15+\beta_2 waterfront+\beta_3 (sqftliving15*waterfront)+e
+$$
+, the interaction term is significant with a positive $\hat{\beta_3}$,. Since waterfront=1 indicates having a waterfront view, so the regression coefficient for houses with a waterfront view is $\hat{\beta_1}+\hat{\beta_3}$=4.662e-04+1.624e-04=6.286e-04, whereas the regression coefficient for houses without a waterfront view is $\hat{\beta_1}$=4.662e-04. Therefore, we conclude that having a waterfront view increases livingroom area's effect on price.
+
+If we assume the squarefootage of the living room is proportional to the squarefootage of the house, then the interpretation of this model in real life is that, houses with a waterfront view have higher unit prices than those without, not only because the former are more expensive than the latter(not only because of $\beta_2$), but also because each additional squarefoot of the former costs more than the latter($\beta_1+\beta_3>\beta_3$). i.e., if you want a house with a waterfront view, you cannot reduce the unit price per squarefoot by choosing a larger one (you can if the addictive model is assumed).
+
+
+
+# Conclusion
+
+In this report, we explore the house sales dataset in King County, USA. After the data cleaning and preprocessing, we get some conclusions from the data visualization and the model building process including the linear regression, random forest and ANOVA model.
+
+1. By building the linear regression model and random forest model to predict the house price, we conclude that the grade and sqft_living15 are the most important variables for predicting the price, which suggests that the house purchaser could have a rough estimate of whether the house price is reasonale or not based on the grade and square footage of the livingroom. What's more, the number of bedrooms and bathrooms, waterfront, view and condition all have a positive influence on the price.
+2. By testing the interaction effect between waterfront and square footage of the living room using ANOVA, we conclude that there is an interaction effect between square footage of living room and whether or not having a waterfront view. Having a waterfront view increases livingroom area's effect on price.. 
+3. The house price also have a close relationship with the location such as longitude and latitude, though not linear relationship. As shown in the map, expensive houses are more likely to be located in the northern part of Seattle city or by the sea, which suggests that the northern part may be more livable.
+
+
+
+
+
+
+
+
+
+
+
