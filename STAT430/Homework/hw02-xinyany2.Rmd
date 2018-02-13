@@ -1,0 +1,143 @@
+---
+title: "Homework 02"
+author: "Xinyan Yang"
+date: 'Due: Friday, September 22, 11:59 PM'
+output:
+  html_document: default
+  pdf_document: default
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1
+
+**[15 points]** This exercise will use data in [`hw02-train-data.csv`](hw02-train-data.csv) and [`hw02-test-data.csv`](hw02-test-data.csv) which are train and test datasets respectively. Both datasets contain a single predictor `x` and a numeric response `y`.
+
+Fit a total of 20 linear models. Each will be a polynomial model. Use degrees from 1 to 20. So, the smallest model you fit will be:
+
+- `y ~ poly(x, degree = 1)`
+
+The largest model you fit will be:
+
+- `y ~ poly(x, degree = 20)`
+
+For each model, calculate Train and Test RMSE. Summarize these results using a single plot which displays RMSE (both Train and Test) as a function of the degree of polynomial used. (Be sure to make the plot easy-to-read, and well labeled.) Note which polynomial degree appears to perform the "best," as well as which polynomial degrees appear to be underfitting and overfitting.
+
+**Solution**
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+testdata = read_csv("hw02-test-data.csv")
+traindata = read_csv("hw02-train-data.csv")
+```
+
+Write the rmse function as below
+```{r}
+rmse = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+get_rmse = function(model, data, response) {
+  rmse(actual = data[, response], 
+       predicted = predict(model, data))
+}
+```
+
+Write a function to fit models 
+```{r}
+mod = list()
+RMSE = vector()
+degree = c(1:20)
+
+fit_rmse = function(i, trndata) {
+    mod[[i]] = lm(y ~ poly(x, i, raw = TRUE), data = traindata)
+    RMSE[i] = get_rmse(model = mod[[i]],
+    data = trndata,
+    response = "y")
+}
+```
+
+Use sapply function to fit models with different degrees
+```{r}
+i = 1:20
+train_rmse = sapply(i, fit_rmse, trndata = traindata)
+test_rmse = sapply(i, fit_rmse, trndata = testdata)
+```
+
+We then plot the results. The train RMSE can be seen in blue, while the test RMSE is given in orange.
+```{r}
+plot(degree, train_rmse, type = "b", 
+     ylim = c(min(c(train_rmse, test_rmse)) - 0.02, 
+              max(c(train_rmse, test_rmse)) + 0.02), 
+     col = "dodgerblue", 
+     xlab = "Polynomial Degree",
+     ylab = "RMSE")
+lines(degree, test_rmse, type = "b", col = "darkorange")
+```
+
+**Conclusion:** As shown in the plot above, we get the min test RMSE at polynomial degree = 5, therefore **when polynomial degree = 5,the model performs best**. Moreover, when polynomial degree < 5, the models have both higher train RMSE and test RMSE, so these models are *underfitting*. At the same time, when polynomial degree > 5, the models have lower train RMSE but higher test RMSE, so these models are *overfitting*.
+
+
+# Exercise 2
+
+**[15 points]** This exercise will again use data in [`hw02-train-data.csv`](hw02-train-data.csv) and [`hw02-test-data.csv`](hw02-test-data.csv) which are train and test datasets respectively. Both datasets contain a single predictor `x` and a numeric response `y`.
+
+Fit a total of 10 nearest neighbors models. Each will use a different value of `k`, the tuning parameter for the number of neighbors. Use the values of `k` defined in the following `R` chunk.
+
+For simplicity, do not worry about scaling the `x` variable.
+
+For each value of the tuning parameter, calculate Train and Test RMSE. Summarize these results using a single well-formatted table which displays RMSE (both Train and Test), `k`, and whether or not that value of the tuning parameter appears to be overfitting, underfitting, or the "best" value of the tuning parameter. Consider rounding your results to show only enough precision to choose the "best" model.
+
+**Solution**
+
+```{r}
+library(FNN)
+library(MASS)
+```
+
+```{r}
+x_trn = as.data.frame(traindata["x"])
+y_trn = as.data.frame(traindata["y"])
+x_tst = as.data.frame(testdata["x"])
+y_tst = as.data.frame(testdata["y"])
+```
+
+Create a function to get the train RMSE and test RMSE
+```{r}
+get_rmse_knn=function(x_test,y_test,n){
+    pred=knn.reg(train = x_trn,test = x_test,y=y_trn,k=n)$pred
+    act=y_test
+    rmse(actual = act,predicted = pred)
+}
+```
+
+Use sapply function to fit 10 models with different k
+```{r}
+trn_rmse = vector()
+tst_rmse = vector()
+m = seq(5, 50, by = 5)
+trn_rmse2 = sapply(m, get_rmse_knn, x_test = x_trn, y_test = y_trn)
+tst_rmse2 = sapply(m, get_rmse_knn, x_test = x_tst, y_test = y_tst)
+```
+
+To decide whether or not the value of the tuning parameter appears to be overfitting, underfitting, or the "best" value of the tuning parameter
+```{r}
+mod_eva = vector()
+best_k = m[which.min(tst_rmse2)]
+mod_eva = ifelse(m < best_k, "Overfit", ifelse(m == best_k, "Best", "Underfit"))
+```
+
+To sunmmarize and display the results in a table
+```{r}
+knn_results = data.frame(
+  m,
+  round(trn_rmse2, 3),
+  round(tst_rmse2, 3),
+  mod_eva
+)
+colnames(knn_results) = c("m", "Train RMSE", "Test RMSE", "Model Evaluation")
+
+knitr::kable(knn_results)
+```
+
