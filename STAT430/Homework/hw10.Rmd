@@ -1,0 +1,401 @@
+---
+title: "Homework 10"
+author: "Xinyan Yang"
+date: 'Due: Wednesday, December 13, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+```{r options, include = FALSE}
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+**Please note the altered due date.** Also, this is the final homework. :(
+
+## Exercise 1
+
+**[10 points]** For this question we will use the `OJ` data from the `ISLR` package. We will attempt to predict the `Purchase` variable. We didn't talk about Support Vector Machines in class, but this is chance to try them out on your own. After changing `uin` to your `UIN`, use the following code to test-train split the data.
+
+```{r, message = FALSE, warning = FALSE}
+library(ISLR)
+library(caret)
+uin = 669675883
+set.seed(uin)
+oj_idx = createDataPartition(OJ$Purchase, p = 0.5, list = FALSE)
+oj_trn = OJ[oj_idx,]
+oj_tst = OJ[-oj_idx,]
+```
+
+**(a)** Tune a SVM with a linear kernel to the training data using 5-fold cross-validation. Use the following grid of values for `C`. Report the chosen values of any tuning parameters. Report test accuracy.
+
+```{r}
+library(caret)
+cv_5 = trainControl(method = "cv", number = 5)
+lin_grid = expand.grid(C = c(2 ^ (-5:5)))
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(uin)
+svm_linear = train(
+    form = Purchase ~.,
+    data = oj_trn,
+    trControl = cv_5,
+    method = 'svmLinear',
+    tuneGrid = lin_grid
+)
+```
+
+```{r}
+#the chosen value of tunning parameter
+svm_linear$bestTune
+```
+
+```{r}
+#perform the prediction
+svm_lin_pre = predict(svm_linear, newdata = oj_tst)
+
+#return the test accuracy for SVM with a linear kernel
+cal_acc = function(actual, predicted){
+    mean(actual == predicted)
+}
+svm_lin_acc = cal_acc(actual = oj_tst$Purchase, 
+                      predicted = svm_lin_pre)
+svm_lin_acc
+```
+
+**The chosen value of tunnning parameter is C = 0.125 and the test accuarcy is 82.40%.**
+
+
+**(b)** Tune a SVM with a polynomial kernel to the training data using 5-fold cross-validation. Do not specify a tuning gird. (`caret` will create one for you.) Report the chosen values of any tuning parameters. Report test accuracy.
+
+```{r}
+set.seed(uin)
+svm_poly = train(
+    form = Purchase ~.,
+    data = oj_trn,
+    trControl = cv_5,
+    method = 'svmPoly'
+)
+```
+
+```{r}
+#the chosen value of tunning parameter
+svm_poly$bestTune
+```
+
+```{r}
+#perform the prediction
+svm_poly_pre = predict(svm_poly, newdata = oj_tst)
+
+#return the test accuracy for SVM with a poly kernel
+svm_poly_acc = cal_acc(actual = oj_tst$Purchase, 
+                      predicted = svm_poly_pre)
+svm_poly_acc
+```
+
+**The chosen values of tunnning parameter are C = 1, degree = 1 and the test accuarcy is 83.52%.**
+
+
+**(c)** Tune a SVM with a radial kernel to the training data using 5-fold cross-validation. Use the following grid of values for `C` and `sigma`. Report the chosen values of any tuning parameters. Report test accuracy.
+
+```{r}
+set.seed(uin)
+rad_grid = expand.grid(C = c(2 ^ (-2:3)), sigma  = c(2 ^ (-3:1)))
+svm_rad = train(
+    form = Purchase ~.,
+    data = oj_trn,
+    trControl = cv_5,
+    method = 'svmRadial',
+    tuneGrid = rad_grid
+)
+```
+
+```{r}
+#the chosen value of tunning parameter
+svm_rad$bestTune
+```
+
+```{r}
+#perform the prediction
+svm_rad_pre = predict(svm_rad, newdata = oj_tst)
+
+#return the test accuracy for SVM with a radial kernel
+svm_rad_acc = cal_acc(actual = oj_tst$Purchase, 
+                      predicted = svm_rad_pre)
+svm_rad_acc
+```
+
+**The chosen values of tunnning parameter are C = 8, sigma = 2 and the test accuarcy is 79.03%.**
+
+
+**(d)** Tune a random forest using 5-fold cross-validation. Report the chosen values of any tuning parameters. Report test accuracy.
+
+```{r, message=FALSE, warning=FALSE}
+rf_grid = expand.grid(.mtry = c(2:5))
+set.seed(uin)
+rf = train(
+    form = Purchase ~.,
+    data = oj_trn,
+    trControl = cv_5,
+    method = 'rf',
+    tuneGrid = rf_grid
+)
+```
+
+```{r}
+#the chosen value of tunning parameter
+rf$bestTune
+```
+
+```{r}
+#perform the prediction
+rf_pre = predict(rf, newdata = oj_tst)
+
+#return the test accuracy for random forest
+rf_acc = cal_acc(actual = oj_tst$Purchase, 
+                      predicted = rf_pre)
+rf_acc
+```
+
+**The chosen value of tunnning parameter is mtry = 3 and the test accuarcy is 82.21%.**
+
+
+**(e)** Summarize the accuracies above. Which method performed the best?
+
+```{r, echo=FALSE}
+Accuracy = c(svm_lin_acc, svm_poly_acc, svm_rad_acc, rf_acc)
+
+results = data.frame(
+  Accuracy
+)
+rownames(results) = c("SVM with a linear kernel", 
+                      "SVM with a polynomial kernel", 
+                      "SVM with a radial kernel", 
+                      "Random Forest")
+knitr::kable(results)
+```
+
+**Among these four models, the SVM with a polynomial kernel performs best with a test accuracy 83.52%.**
+
+
+# Exercise 2
+
+**[10 points]** For this question, use the data found in `clust_data.csv`. We will attempt to cluster this data using $k$-means. But, what $k$ should we use?
+
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+clust_data = read_csv("clust_data.csv")
+```
+
+
+**(a)** Apply $k$-means to this data 15 times, using number of centers from 1 to 15. Each time use `nstart = 10` and store the `tot.withinss` value from the resulting object. (Hint: write a for-loop.) The `tot.withinss` measures how variable the observations are within a cluster, which we would like to be low. So obviously this value will be lower with more centers, no matter how many clusters there truly are. Plot this value against the number of centers. Look for an "elbow", the number of centers where the improvement suddenly drops off. Based on this plot, how many cluster do you think should be used for this data?
+
+```{r}
+center = c(1:15)
+tot = rep(0, 15)
+
+for (i in seq_along(center)) {
+    kmean_out = kmeans(clust_data, centers = i, nstart = 10)
+    tot[i] = kmean_out$tot.withinss #store the tot.withinss value
+}
+```
+
+```{r}
+plot(center, tot,
+     col = "dodgerblue",
+     type = 'b',
+     main = "tot.withinss VS clusters",
+     xlab = "Clusters",
+     ylab = "tot.withinss")
+```
+
+**Since the elbow of this plot appears at cluster = 4, I would try 4 clusters for this dataset.**
+
+
+**(b)** Re-apply $k$-means for your chosen number of centers. How many observations are placed in each cluster? What is the value of `tot.withinss`?
+
+```{r}
+kmean_out = kmeans(clust_data, centers = 4, nstart = 10)
+kmean_out$size   #the observations in each cluster
+kmean_out$tot.withinss   #the value of tot.withinss
+```
+
+**(c)** Visualize this data. Plot the data using the first two variables and color the points according to the $k$-means clustering. Based on this plot, do you think you made a good choice for the number of centers? (Briefly explain.)
+
+```{r}
+plot(
+  clust_data$V1,
+  clust_data$V2,
+  col = kmean_out$cluster,
+  pch = 20,
+  xlab = "First Variable",
+  ylab = "Second Variable"
+)
+```
+
+**Based on this plot, I don't think four clusters is a good choice for this dataset because the points weren't seperated well.**
+
+
+**(d)** Use PCA to visualize this data. Plot the data using the first two principal components and color the points according to the $k$-means clustering. Based on this plot, do you think you made a good choice for the number of centers? (Briefly explain.)
+
+```{r}
+clust_data_pca = prcomp(clust_data, scale = TRUE)
+
+plot(
+  clust_data_pca$x[, 1],
+  clust_data_pca$x[, 2],
+  col = kmean_out$cluster,
+  pch = 0,
+  xlab = "First Principal Component",
+  ylab = "Second Principal Component",
+  cex = 2
+)
+points(clust_data_pca$x[, 1], clust_data_pca$x[, 2], col = kmean_out$cluster, pch = 20, cex = 1.5)
+```
+
+**We can see from this plot that all points are seperated well after doing PCA. Four clusters seem to do well in this case.**
+
+
+**(e)** Calculate the proportion of variation explained by the principal components. Make a plot of the cumulative proportion explained. How many principal components are need to explain 95% of the variation in the data?
+
+```{r}
+#write the function to calculate the prportional variance
+get_PVE = function(pca_out) {
+  pca_out$sdev ^ 2 / sum(pca_out$sdev ^ 2)
+}
+
+clust_data_pve = get_PVE(clust_data_pca)
+
+plot(
+  cumsum(clust_data_pve),
+  xlab = "Principal Component",
+  ylab = "Cumulative Proportion of Variance Explained",
+  ylim = c(0, 1),
+  type = 'b',
+  col = 'dodgerblue'
+)
+abline(h = 0.95, col = "darkorange", lty = 2)
+abline(v = 35, col = "darkorange", lty = 2)
+```
+
+**As we can see, only 35 predictors can help us explain over 95% variance of the data.**
+
+# Exercise 3
+
+**[10 points]** For this question we will return to the `USArrests` data from the notes. (This is a default `R` dataset.)
+
+**(a)** Perform hierarchical clustering six times. Consider all possible combinations of linkages (average, single, complete) and data scaling. (Scaled, Unscaled.)
+
+| Linkage  | Scaling |
+|----------|---------|
+| Single   | No      |
+| Average  | No      |
+| Complete | No      |
+| Single   | Yes     |
+| Average  | Yes     |
+| Complete | Yes     |
+
+Each time, cut the dendrogram at a height that results in four distinct clusters. Plot the results, with a color for each cluster.
+
+```{r}
+library(sparcl)
+```
+
+```{r, fig.height=6, fig.width=13}
+#single linkage, unscaling
+usa_sin_unsca = hclust(dist(USArrests), method = "single")
+usa_sin_unsca_cut = cutree(usa_sin_unsca, 4)
+ColorDendrogram(usa_sin_unsca, y = usa_sin_unsca_cut,
+                labels = names(usa_sin_unsca_cut),
+                main = "Unscaling Data, Single Linkage",
+                branchlength = 8)
+```
+
+```{r, echo=FALSE, fig.height=6, fig.width=13}
+#average linkage, unscaling
+usa_ave_unsca = hclust(dist(USArrests), method = "average")
+usa_ave_unsca_cut = cutree(usa_ave_unsca , 4)
+ColorDendrogram(usa_ave_unsca, y = usa_ave_unsca_cut,
+                labels = names(usa_ave_unsca_cut),
+                main = "Unscaling Data, Average Linkage",
+                branchlength = 30)
+```
+
+```{r, echo=FALSE, fig.height=6, fig.width=13}
+#complete linkage, unscaling
+usa_com_unsca = hclust(dist(USArrests), method = "complete")
+usa_com_unsca_cut = cutree(usa_com_unsca , 4)
+ColorDendrogram(usa_com_unsca, y = usa_com_unsca_cut,
+                labels = names(usa_com_unsca_cut),
+                main = "Unscaling Data, Complete Linkage",
+                branchlength = 60)
+```
+
+```{r, fig.height=6, fig.width=13}
+#single linkage, scaling
+usa_sin_sca = hclust(dist(scale(USArrests)), method = "single")
+usa_sin_sca_cut = cutree(usa_sin_sca, 4)
+ColorDendrogram(usa_sin_sca, y = usa_sin_sca_cut,
+                labels = names(usa_sin_sca_cut),
+                main = "Scaling Data, Single Linkage",
+                branchlength = 0.38)
+```
+
+```{r, echo=FALSE, fig.height=6, fig.width=13}
+#average linkage, scaling
+usa_ave_sca = hclust(dist(scale(USArrests)), method = "average")
+usa_ave_sca_cut = cutree(usa_ave_sca , 4)
+ColorDendrogram(usa_ave_sca, y = usa_ave_sca_cut,
+                labels = names(usa_ave_sca_cut),
+                main = "scaling Data, Average Linkage",
+                branchlength = 0.8)
+```
+
+```{r, echo=FALSE, fig.height=6, fig.width=13}
+#complete linkage, scaling
+usa_com_sca = hclust(dist(scale(USArrests)), method = "complete")
+usa_com_sca_cut = cutree(usa_com_sca , 4)
+ColorDendrogram(usa_com_sca, y = usa_com_sca_cut,
+                labels = names(usa_com_sca_cut),
+                main = "Scaling Data, Complete Linkage",
+                branchlength = 1.5)
+```
+
+
+**(b)** Based on the above plots, do any of the results seem more useful than the others? (There is no correct answer here.) Pick your favorite. (Again, no correct answer.)
+
+**Personally, I prefer the plot with scaling data and complete linkage because there's no cluster with only 1 or 2 observations in it in this case while others have.**
+
+**(c)** Use the documentation for `?hclust` to find other possible linkages. Pick one and try it. Compare the results to your favorite from **(b)**. Is it much different?
+
+```{r, fig.height=6, fig.width=13}
+#centroid linkage, scaling
+usa_cen_sca = hclust(dist(scale(USArrests)), method = "centroid")
+usa_cen_sca_cut = cutree(usa_cen_sca , 4)
+ColorDendrogram(usa_cen_sca, y = usa_cen_sca_cut,
+                labels = names(usa_cen_sca_cut),
+                main = "Scaling Data, Centroid Linkage",
+                branchlength = 0.6)
+```
+
+**This one is much different than the one in (b) and I don't think it peforms better than the picked one because we can see that three clusters out of four have only one observation in it.**
+
+
+**(d)** Use the documentation for `?dist` to find other possible distance measures. (We have been using `euclidean`.) Pick one (not `binary`) and try it. Compare the results to your favorite from **(b)**. Is it much different?
+
+```{r, fig.height=6, fig.width=13}
+#complete linkage, scaling
+usa_com_sca_ma = hclust(dist(scale(USArrests), method = "manhattan"), method = "complete")
+usa_com_sca_ma_cut = cutree(usa_com_sca_ma , 4)
+ColorDendrogram(usa_com_sca_ma, y = usa_com_sca_ma_cut,
+                labels = names(usa_com_sca_ma_cut),
+                main = "Scaling Data, Complete Linkage, Manhattan Distance",
+                branchlength = 2.5)
+```
+
+**There is little difference between the one in b and this one since most of them are in the same cluster .**
+
+
+
