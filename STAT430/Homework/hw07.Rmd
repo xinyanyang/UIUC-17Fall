@@ -1,0 +1,332 @@
+---
+title: "Homework 07"
+author: "Xinyan Yang"
+date: 'Due: Friday, November 3, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+You should use the `caret` package and training pipeline to complete this homework. **Any time you use the `train()` function, first run `set.seed(1337)`.**
+
+```{r message = FALSE, warning = FALSE}
+library(caret)
+library(mlbench)
+```
+
+***
+
+# Exercise 1 (Regression with `caret`)
+
+**[10 points]** For this exercise we will train a number of regression models for the `Boston` data from the `MASS` package. Use `medv` as the response and all other variables as predictors. Use the test-train split given below. When tuning models and reporting cross-validated error, use 5-fold cross-validation.
+
+```{r}
+data(Boston, package = "MASS")
+set.seed(42)
+bstn_idx = createDataPartition(Boston$medv, p = 0.80, list = FALSE)
+bstn_trn = Boston[bstn_idx, ]
+bstn_tst = Boston[-bstn_idx, ]
+```
+
+Fit a total of five models:
+
+- An additive linear regression
+- A well tuned $k$-nearest neighbors model.
+    - Do **not** scale the predictors.
+    - Consider $k \in \{1, 5, 10, 15, 20, 25\}$
+- Another well tuned $k$-nearest neighbors model.
+    - **Do** scale the predictors.
+    - Consider $k \in \{1, 5, 10, 15, 20, 25\}$
+- A random forest
+    - Use the default tuning parameters chosen by `caret`
+- A boosted tree model
+    - Use the provided tuning grid below
+    
+```{r}
+gbm_grid = expand.grid(interaction.depth = c(1, 2, 3),
+                       n.trees = (1:20) * 100,
+                       shrinkage = c(0.1, 0.3),
+                       n.minobsinnode = 20)
+```
+
+Provide plots of error versus tuning parameters for the two $k$-nearest neighbors models and the boosted tree model. Also provide a table that summarizes the cross-validated and test RMSE for each of the five  (tuned) models.
+
+**Solution**
+
+```{r}
+set.seed(1337)
+LinFit = train(
+    form = medv ~ .,
+    data = bstn_trn,
+    method = "lm",
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+```{r}
+set.seed(1337)
+knnFit = train(
+    form = medv ~ .,
+    data = bstn_trn,
+    method = "knn",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneGrid = expand.grid(k = c(1, 5, 10, 15, 20, 25))
+    )
+```
+
+```{r}
+set.seed(1337)
+knnscaleFit = train(
+    form = medv ~ .,
+    data = bstn_trn,
+    method = "knn",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 5),
+    tuneGrid = expand.grid(k = c(1, 5, 10, 15, 20, 25))
+    )
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1337)
+rfFit = train(
+    form = medv ~ .,
+    data = bstn_trn,
+    method = "rf",
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1337)
+boostedFit = train(
+    form = medv ~ .,
+    data = bstn_trn,
+    method = "gbm",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneGrid = gbm_grid,
+    verbose = FALSE # added verbose = FALSE to the train() call to suppress some of the intermediate output of the gbm fitting procedure.
+    )
+```
+
+```{r}
+# plots of error versus tuning parameters for the two k-nearest neighbors models and the boosted tree model
+plot(knnFit,
+     main = "Cross-Validate RMSE vs Neighbors")
+plot(knnscaleFit,
+     main = "Cross-Validate RMSE vs Neighbors(with scaling data)")
+plot(boostedFit)
+```
+
+
+```{r}
+get_best_result = function(caret_fit) {
+    best = which(rownames(caret_fit$results) == rownames(caret_fit$bestTune))
+    best_result = caret_fit$results[best,]
+    rownames(best_result) = NULL
+    best_result
+}
+
+calc_rmse = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+```
+
+```{r}
+#provide a table that summarizes the cross-validated and test RMSE for each of the five (tuned) model
+model_list = list(LinFit, knnFit, knnscaleFit, rfFit, boostedFit)
+
+best_results = sapply(model_list, get_best_result) 
+
+cv_rmse = rep(0, 5)
+tst_rmse = rep(0, 5)
+
+for (i in 1:5) {
+    cv_rmse[i] = best_results[[i]]$RMSE
+    pred = predict(model_list[[i]], newdata = bstn_tst)
+    tst_rmse[i] = calc_rmse(actual = bstn_tst$medv, predicted = pred)
+}
+```
+
+```{r}
+results = data.frame(
+  cv_rmse,
+  tst_rmse
+)
+rownames(results) = c("Linear Regression", 
+                      "KNN", 
+                      "KNN(scaling predictors)", 
+                      "Random Forest", 
+                      "Boosted Tree")
+
+knitr::kable(results)
+```
+
+
+***
+
+# Exercise 2 (Classification with `caret`)
+
+**[10 points]** For this exercise we will train a number of classifiers using the training data generated below. The categorical response variable is `classes` and the remaining variables should be used as predictors. When tuning models and reporting cross-validated error, use 10-fold cross-validation.
+
+```{r}
+set.seed(42)
+sim_trn = mlbench::mlbench.2dnormals(n = 750, cl = 5)
+sim_trn = data.frame(
+  classes = sim_trn$classes,
+  sim_trn$x
+)
+```
+
+```{r fig.height = 4, fig.width = 4, fig.align = "center"}
+caret::featurePlot(x = sim_trn[, -1], 
+            y = sim_trn$classes, 
+            plot = "pairs",
+            auto.key = list(columns = 2))
+```
+
+Fit a total of four models:
+
+- LDA
+- QDA
+- Naive Bayes
+- Regularized Discriminant Analysis (RDA)
+    - Use method `rda` with `caret` which requires the `klaR` package
+    - Use the default tuning grid
+
+Provide a plot of acuracy versus tuning parameters for the RDA model. Also provide a table that summarizes the cross-validated accuracy and their standard deviations for each of the four (tuned) models.
+
+**Solution**
+
+```{r, message=FALSE, warning=FALSE}
+library(klaR)
+```
+
+```{r}
+set.seed(1337)
+ldafit = train(
+               form = classes ~.,             
+               data = sim_trn,
+               method = "lda",
+               trControl = trainControl(method = "cv", number = 10))
+```
+
+```{r}
+set.seed(1337)
+qdafit = train(
+               form = classes ~.,             
+               data = sim_trn,
+               method = "qda",
+               trControl = trainControl(method = "cv", number = 10))
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1337)
+nbfit = train(
+               form = classes ~.,             
+               data = sim_trn,
+               method = "nb",
+               trControl = trainControl(method = "cv", number = 10))
+```
+
+```{r}
+set.seed(1337)
+rdafit = train(
+               form = classes ~.,             
+               data = sim_trn,
+               method = "rda",
+               trControl = trainControl(method = "cv", number = 10))
+```
+
+```{r}
+plot(rdafit,
+     main = "Accuracy vs Tunning Parameters for the RDA Model")
+```
+
+```{r}
+model_list2 = list(ldafit, qdafit, nbfit, rdafit)
+best_results2 = sapply(model_list2, get_best_result) 
+
+cv_accuracy = rep(0, 4)
+accuracy_sd = rep(0, 4)
+
+for (i in 1:4) {
+    cv_accuracy[i] = best_results2[[i]]$Accuracy
+    accuracy_sd[i] = best_results2[[i]]$AccuracySD
+}
+```
+
+```{r}
+results2 = data.frame(
+  cv_accuracy,
+  accuracy_sd
+)
+rownames(results2) = c("LDA", 
+                      "QDA", 
+                      "Naive Bayes", 
+                      "RDA")
+
+knitr::kable(results2)
+```
+
+***
+
+# Exercise 3 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises. 
+
+## Regression
+
+**(a)** What value of $k$ is chosen for KNN without predictor scaling?
+
+```{r}
+knnFit$bestTune[[1]]
+```
+
+**(b)** What value of $k$ is chosen for KNN **with** predictor scaling?
+
+```{r}
+knnscaleFit$bestTune[[1]]
+```
+
+**(c)** What are the values of the tuning parameters chosen for the boosted tree model?
+
+```{r}
+boostedFit$bestTune
+```
+
+
+**(d)** Which method achieves the lowest cross-validated error?
+
+**Random forest.**
+
+**(e)** Which method achieves the lowest test error?
+
+**Random forest.**
+
+## Classification
+
+**(f)** What are the values of the tuning parameters chosen for the RDA model?
+
+```{r}
+rdafit$bestTune
+```
+
+**(g)** Based on the scatterplot, which method, LDA or QDA, do you think is *more* appropriate? Explain.
+
+**I think QDA is more appropriate since the sigma k(variance) appears to be very different for different classes according to the scatter plot.**
+
+**(h)** Based on the scatterplot, which method, QDA or Naive Bayes, do you think is *more* appropriate? Explain.
+
+**Naive Bayes. Because the scatter plot shows that the predictors are independent conditional on the classes.**
+
+**(i)** Which model achieves the best cross-validated accuracy?
+
+**The Regularized Discriminant Analysis model. **
+
+**(j)** Do you believe the model in **(i)** is the model that should be chosen? Explain.
+
+**I don't believe. Because we can't use the cross-validate accuracy as the only criteria to choose our model.** 
+
+
+
