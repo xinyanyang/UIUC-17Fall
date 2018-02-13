@@ -1,4 +1,4 @@
-   * ods html close; 
+* ods html close; 
 * ods preferences;
 * ods html newfile=proc;
  ods rtf file='c:\Stat 448\results.rtf'; 
