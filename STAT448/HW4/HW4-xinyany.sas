@@ -1,6 +1,6 @@
 options nodate nonumber;
 title ;
-ods rtf file='e:\CourseMaterials\Stat448\Homework4Solution.rtf' nogtitle startpage=no;
+ods rtf file='e:\CourseMaterials\Stat448\Homework4xinyany2.rtf' nogtitle startpage=no;
 ods noproctitle;
 *exercise 1;
 proc import datafile="/folders/myfolders/hw4/Indian Liver Patient Dataset (ILPD).csv"
