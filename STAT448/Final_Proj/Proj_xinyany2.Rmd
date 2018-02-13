@@ -152,7 +152,7 @@ pca_data = stu_selected[, -9]
 pca_stu = prcomp(pca_data, scale. = T, center = T)
 ```
 
-Frequently we will be interested in the proportion of variance explained by a principal component. The plot below shows us how much variance of the dataset is explained by the 1st, the 2nd ¡­ 8th principle component. Since the 8th PC can explain nearly no varinace, it is kind of unimportant for our dataset.
+Frequently we will be interested in the proportion of variance explained by a principal component. The plot below shows us how much variance of the dataset is explained by the 1st, the 2nd Â¡Â­ 8th principle component. Since the 8th PC can explain nearly no varinace, it is kind of unimportant for our dataset.
 
 ```{r, include=FALSE}
 get_PVE = function(pca_out) {
