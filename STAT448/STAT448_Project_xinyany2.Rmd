@@ -1,0 +1,331 @@
+---
+title: "STAT 448 Individual Report"
+subtitle: "Principal Component Analysis of Students' Grade Data"
+author: "Name: Xinyan Yang(xinyany2) Group number: 6"
+date: "December 3, 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+\centering
+\raggedright
+\newpage
+
+##Introduction
+
+**Background Information**
+
+This dataset comes from Kaggle(https://www.kaggle.com/uciml/student-alcohol-consumption). The data were obtained in a survey of students math and portuguese language courses in secondary school. It contains a lot of interesting social, gender and study information about students. 
+
+The original dataset contains two different csv files which collect students' Math grades and Portuguese language grades seperately. Since the Portuguese grades dataset has more observations than the Math grades one, I choose it in order to get a more accurate analysis.
+
+**Description of the Dataset**
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#Import the data
+library(readr)
+student = read_csv("student-por.csv")
+dim(student)
+attach(student)
+```
+
+The dataset originally has 649 observations and 33 variables. Each row represents a single student's information which looks like below:
+
+```{r, echo=FALSE}
+knitr::kable(student[1, c(1:12)])
+```
+
+```{r, echo=FALSE}
+knitr::kable(student[1, c(13:21)])
+```
+
+```{r, echo=FALSE}
+knitr::kable(student[1, c(22:33)])
+```
+
+Here is a simple description of some attributes in the data.
+
+| Variable   | Description                                        |
+|------------|----------------------------------------------------|
+| school     | student's school (binary: 'GP' or 'MS')            |
+| famsize    | family size                                        |
+| Pstatus    | parent's cohabitation status                       |
+| Medu       | mother's education                                 |
+| Mjob       | mother's job                                       |
+| studytime  | weekly study time                                  |
+| failures   | number of past class failures                      |
+| schoolsup  | extra educational support                          |
+| famsup     | family educational support                         |
+| higher     | wants to take higher education                     |
+| Dalc       | workday alcohol consumption                        |
+| Walc       | weekend alcohol consumption                        |
+| G1         | first period grade                                 |
+| G2         | second period grade                                |
+| G3         | final grade                                        |
+
+Because we have three variables G1, G2 and G3 which represents to three grades and we are not sure if G3 is the linear combination of G1 and G2, I got the average of these three grades as my target response variable which denoted by y.
+Besides, since the dataset has some categorical variables, I transformed them into numerical flag values. 
+After all the datapreprocessing, we now have 41 variables including the response y.
+
+```{r, include=FALSE}
+student$y = (G1 + G2 + G3)/3
+student = student[, -c(31:33)]  ##remove the original G1-G3
+
+##With this call you can transform all categorial variables into numerical flag values.
+stu = data.frame(model.matrix( ~ .- 1, data = student)) 
+dim(stu)  #the tds dataset now has 41 variables including the response y
+```
+
+
+**The Task and Motivation**
+
+Since our dataset has 41 predictors and many of them are correlated with each other(which can be seen from below analysis), I will try to reduce it to fewer dimensions and get rid of the correlation effect using PCA (Principal Component Analysis). The goal is to find out which are the most important factors for predicting the grade.
+
+
+**Basic Descriptive Statistics and charts**
+
+First we try to get a basic idea of the correlations between the predictors and our response variable grade. So I get the pearson correlation coefficient between X and y, convert them into positive values and plot them in a decreasing order as shown below.
+
+```{r, echo=FALSE, fig.height=3.8, fig.width=6}
+#obtain the pearson correlation matrix
+cor_stu = cor(stu, stu, method = "pearson")
+
+#substract the correlation between y and variables 
+cor_xy = data.frame(cor = cor_stu[1:40, 41])
+
+# sort and convert to absolute value
+cor_xy$cor_abs = abs(cor_xy$cor)
+orderdata = cor_xy[order(-cor_xy[, 2]), ]
+
+#plot the absolute value of correlation coefficient between y and 40 predictors
+plot(orderdata$cor_abs,  type = 'b', col = "dodgerblue",
+     main = "Correlation Coefficient between Grade and 40 predictors",
+     ylab = "Pearson Correlation Coefficient",
+     xlab = "Index of Predictors"
+    )
+abline(h = 0.2, col = "darkorange", lty = 2)
+```
+
+As we can see from the plot, half of the variables have a correlation coefficient less than 0.1. And it turns out that if we set the threshold value to be 0.2, we could pick 8 predictors out of 40, which can greatly reduce the complexity of PCA model without losing too much information. And these 8 predictors are failures, higheryes, schoolGP, schoolMS, Medu, studytime, Fedu and Dalc.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+#Select the ones with the highest correlation according to threshold 0.2
+selected = rownames(orderdata[c(1:8),])
+stu_selected = stu[, c(which(colnames(stu) == selected[1]),
+                       which(colnames(stu) == selected[2]),
+                       which(colnames(stu) == selected[3]),
+                       which(colnames(stu) == selected[4]),
+                       which(colnames(stu) == selected[5]),
+                       which(colnames(stu) == selected[6]),
+                       which(colnames(stu) == selected[7]),
+                       which(colnames(stu) == selected[8]),
+                       41)]
+```
+
+
+
+Next by looking at the correlation matrix between these 8 predictors, we can check if there is any multicolinearity issue.
+
+```{r, echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+library(corrgram)
+corrgram(
+    stu_selected,
+    lower.panel = panel.cor,
+    upper.panel = panel.pie,
+    cor.method = "pearson",
+    col.regions = colorRampPalette(c("red", "darkorange",
+  "white", "dodgerblue", "navy"))
+    )
+```
+
+As we can see, all these variables are more or less correlated with each other. For example, schoolMS and schoolGP or Fedu(father education) and Medu(mother education) are highly correlated. If we include all of them in a model to predict y (grades), we would introduce a lot of multicolinearity. That is exactly why we should use PCA-  a great tool of reducing dimensionality.
+
+
+##Methods and Results
+
+**Perform PCA and Choose PCs**
+
+Before we do PCA, we need to remove our target variable first.
+
+```{r, include=FALSE}
+pca_data = stu_selected[, -9]
+pca_stu = prcomp(pca_data, scale. = T, center = T)
+```
+
+Frequently we will be interested in the proportion of variance explained by a principal component. The plot below shows us how much variance of the dataset is explained by the 1st, the 2nd бн 8th principle component. Since the 8th PC can explain nearly no varinace, it is kind of unimportant for our dataset.
+
+```{r, include=FALSE}
+get_PVE = function(pca_out) {
+  pca_out$sdev ^ 2 / sum(pca_out$sdev ^ 2)
+}
+```
+
+```{r, include=FALSE}
+pve = get_PVE(pca_stu)
+```
+
+```{r, echo=FALSE, fig.height=4, fig.width=7}
+plot(
+  pve,
+  xlab = "Principal Component",
+  ylab = "Proportion of Variance Explained",
+  main = "Proportion of Variance Explained vs Principal Component",
+  ylim = c(0, 0.6),
+  type = 'b',
+  col = "dodgerblue"
+)
+```
+
+Since the cumulative proportion can help us decide how many PCs should we keep, which actually helps reduce dimension of the dataset, I then plot the cumulative proportion of variance explained by PCs. 
+
+```{r, echo=FALSE, fig.height=4, fig.width=7}
+plot(
+  cumsum(pve),
+  xlab = "Principal Component",
+  ylab = "Cumulative Proportion of Variance Explained",
+  main = "Cumulative Proportion of Variance Explained VS PCs",
+  ylim = c(0, 1),
+  type = 'b',
+  col = 'dodgerblue'
+)
+abline(h = 0.95, col = "darkorange", lty = 2)
+```
+
+As expected, we see that only 6 PCs can help explain over 95% variance of the data. Therefore I would choose 6 PCs for my future analysis which helps reduce the dimensionality.
+
+
+
+**Explanation of PCs**
+
+The rotation matrix below can help us understand what these PCs composed of and what is the relationship between PCs and the original predictors.
+
+```{r, echo=FALSE}
+knitr::kable(pca_stu$rotation[, c(1:6)])
+```
+
+By checking the predictors with high coefficients, we can get a general idea of what these PCs represent.
+
+| PC | Predictors with large coefficients | Explanation         |
+|----|------------------------------------|---------------------|
+| 1  | schoolGP, schoolMS                 | school              |
+| 2  | failures, higheryes                | study motivation    |
+| 3  | Fedu, Medu, studytime              | study time          |
+| 4  | Dalc                               | alcohol consumption |
+
+
+
+To get a better idea of the relationships between the predictors and PCs, I draw a biplot using PC1 and PC2 as the axes. Before we get into that plot, let's take a look at the relationship between the grade and each PC.
+
+```{r, echo=FALSE, fig.height=3, fig.width=6}
+par(mfrow = c(1, 2))
+
+plot(pca_stu$x[, 1], stu_selected$y, 
+     col = "dodgerblue", 
+     lwd = 0.1,
+     xlab = "PC1",
+     ylab = "Grade")
+plot(pca_stu$x[, 2], stu_selected$y, 
+     col = "darkorange", 
+     lwd = 0.1,
+     xlab = "PC2",
+     ylab = "Grade")
+```
+
+We can see that those who have negative PC1 or PC2 tend to have higher grades than those who have positive PC.
+
+
+```{r, echo=FALSE, fig.height=4, fig.width=4}
+library(ggplot2)
+PC_biplot = function(PC, x="PC1", y="PC2") {
+    data = data.frame( PC$x)
+    plot = ggplot(data, aes_string(x = x, y = y))
+    datapc = data.frame(varnames = row.names(PC$rotation), PC$rotation)
+    mult = min(
+        (max(data[,y]) - min(data[,y])/(max(datapc[,y]) - min(datapc[,y]))),
+        (max(data[,x]) - min(data[,x])/(max(datapc[,x]) - min(datapc[, x])))
+    )
+    datapc = transform(datapc,
+            v1 = .7 * mult * (get(x)),
+            v2 = .7 * mult * (get(y))
+            )
+    plot = plot + coord_equal() + geom_text(data = datapc, aes(x = v1, y = v2, label = varnames), size = 3, vjust = 1, color = "darkred")
+    plot = plot + geom_segment(data = datapc, aes(x = 0, y = 0, xend = v1, yend = v2), arrow = arrow(length = unit(0.2,"cm")), alpha = 0.5, color = "black")
+    plot
+}
+
+PC_biplot(pca_stu)
+```
+
+As you can see, the predictors are basically seperated into two groups which point to opposite directions. The group which points to the left, bottom corner has variables like studytime, Medu, Fedu and higheryes. These variables tend to have positive influence(as we talked before) on the response variable grades. The other group which points to the right, top corner has variables like failures and Dalc, which would cause a negative influence on grades.
+
+
+**Check the correlation again**
+
+ The power of PCA is not only in that it can reduce the dimensionality of data, but also in that it automatically get rid of correlation effect between predictos. For the matrix below I removed PC7 and PC8, as well as added our target variable.
+ 
+```{r, echo=FALSE, fig.height=3, fig.width=5}
+pca_corr = data.frame(pca_stu$x)
+pca_corr = pca_corr[, -c(7,8)] 
+pca_corr$y = stu_selected$y
+
+corrgram(
+    pca_corr,
+    lower.panel = panel.cor,
+    upper.panel = panel.pie,    
+    col.regions = colorRampPalette(c("red", "darkorange",
+  "white", "dodgerblue", "navy")))
+```
+
+As shown in the plot, there's no correlation effect between PCs any more. In word, PCA does solve the multicolinearity issue of our dataset.
+
+
+
+**Principal Component Regression**
+
+
+To check if our PCs would get the same prediction power as the previous variables, we can perform a linear regression using PCs as predictors.
+
+```{r, echo=FALSE}
+model = lm(y ~ ., data = pca_corr)
+summary(model)
+```
+
+Let's compare it to the model which use the original predictors.
+
+```{r, echo=FALSE}
+model2 = lm(y ~ ., data = stu_selected)
+summary(model2)
+```
+
+It turns out that two R-squared barely have any difference, which means that our PCA doesn't lose any prediction power while at the same time reduce the dimensionality.
+
+
+
+##Conclusion
+
+
+Our dataset originally has 40 predictors and most of them are correlated with each other. After performing PCA, we both reduce the dimension and get rid of the multicolinearity issue without losing any prediction power. Although sometimes it's hard for us to understand what these principal components represent, some useful conclusions can be drawn from the biplot.
+
+In general, if a student wants to strive for higher education and spends longer time studying, he or she may get higher grades while consuming more alcohol during the week or having more past failures in exams could have a negative influence on the grades, which is kind of reasonable.
+
+
+
+```{r, eval=FALSE, include=FALSE}
+# create data frame with scores
+scores = as.data.frame(pca_stu$x)
+scores$y = stu_selected$y
+scores$rank = NA
+scores$rank[order(-scores$y)] = 1:nrow(scores)
+
+# plot of observations
+ggplot(data = scores, aes(x = PC1, y = PC2, label = scores$rank)) +
+  geom_hline(yintercept = 0, colour = "gray65") +
+  geom_vline(xintercept = 0, colour = "gray65") +
+  geom_text(colour = "tomato", alpha = 0.8, size = 3) +
+  ggtitle("Ranks of Grade vs PCs")
+```
+
+```{r, include=FALSE}
+detach(student)
+```
+
