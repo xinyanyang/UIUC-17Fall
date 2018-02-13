@@ -1,0 +1,292 @@
+---
+title: "Homework 05"
+author: "Xinyan Yang"
+date: 'Due: Friday, October 13, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1 (Detecting Cancer with KNN)
+
+**[7 points]** For this exercise we will use data found in [`wisc-trn.csv`](wisc-trn.csv) and [`wisc-tst.csv`](wisc-tst.csv) which contain train and test data respectively. `wisc.csv` is provided but not used. This is a modification of the Breast Cancer Wisconsin (Diagnostic) dataset from the UCI Machine Learning Repository. Only the first 10 feature variables have been provided. (And these are all you should use.)
+
+- [UCI Page](https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Diagnostic))
+- [Data Detail](https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.names)
+
+You should consider coercing the response to be a factor variable. Use KNN with all available predictors. For simplicity, do not scale the data. (In practice, scaling would slightly increase performance on this dataset.) Consider $k = 1, 3, 5, 7, \ldots, 51$. Plot train and test error vs $k$ on a single plot.
+
+Use the seed value provided below for this exercise.
+
+
+**Solution**
+
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+library(FNN)
+library(MASS)
+wisc_train = read_csv("wisc-trn.csv")
+wisc_test = read_csv("wisc-tst.csv")
+```
+
+```{r}
+set.seed(314)
+wisc_train$class = as.factor(wisc_train$class)##convert the response to a factor
+wisc_test$class = as.factor(wisc_test$class)
+
+x_trn = data.matrix(wisc_train[, 2:11])
+y_trn = data.matrix(wisc_train[, 1])
+x_tst = data.matrix(wisc_test[, 2:11])
+y_tst = data.matrix(wisc_test[, 1])
+```
+
+Write a function to get the train and test error
+```{r}
+get_error = function(x_train, x_test, y_test, y_train, n){
+    pred = knn.reg(train = x_train, test = x_test, y = y_train, k = n)$pred
+    actual = y_test
+    error = mean(actual != pred)
+}
+```
+
+
+```{r}
+k_try = seq(1, 51, 2)
+train_error_knn = sapply(k_try, get_error, x_train = x_trn, x_test = x_trn, y_test = y_trn, y_train = y_trn)
+test_error_knn = sapply(k_try, get_error, x_train = x_trn, x_test = x_tst, y_test = y_tst, y_train = y_trn)
+```
+
+```{r}
+plot(k_try, train_error_knn, type = "b", lty = 2,
+     ylim = c(min(c(train_error_knn, test_error_knn)) - 0.02, 
+              max(c(train_error_knn, test_error_knn)) + 0.02), 
+     col = "dodgerblue", 
+     xlab = "k",
+     ylab = "ERROR")
+lines(k_try, test_error_knn, type = "b", lty = 2, col = "darkorange")
+legend( "topleft", legend = c("Train error", "Test error"), lty = c(2, 2), lwd = c(2.5, 2.5), col = c("dodgerblue", "darkorange"))
+```
+
+***
+
+# Exercise 2 (Logistic Regression Decision Boundary)
+
+**[5 points]** Continue with the cancer data from Exercise 1. Now consider an additive logistic regression that considers only two predictors, `radius` and `symmetry`. Plot the test data with `radius` as the $x$ axis, and `symmetry` as the $y$ axis, with the points colored according to their tumor status. Add a line which represents the decision boundary for a classifier using 0.5 as a cutoff for predicted probability.
+
+**Solution**
+```{r}
+x_trn2 = as.data.frame(cbind(wisc_train[, 2], wisc_train[, 10]))
+y_trn2 = y_trn - 1
+x_tst2 = as.data.frame(cbind(wisc_test[, 2], wisc_test[, 10]))
+y_tst2 = y_tst - 1
+colnames(x_trn2) = c("radius", "symmetry")
+colnames(x_tst2) = c("radius", "symmetry"
+)
+```
+
+```{r, message=FALSE, warning=FALSE}
+fit_glm = glm(y_trn2 ~ radius + symmetry, data = x_trn2, family = "binomial")
+pred_glm = ifelse(predict(fit_glm, data = x_tst2, type = "link") > 0, 1, 0)
+```
+
+```{r, message=FALSE, warning=FALSE}
+plot(wisc_test$radius, wisc_test$symmetry,
+     ylim = c(min(wisc_test$symmetry) - 0.01, 
+              max(wisc_test$symmetry) + 0.01),
+     col = ifelse(wisc_test$class == "M", "dodgerblue", "darkorange"), 
+     pch = "¡£",
+     xlab = "Radius",
+     ylab = "Symmetry",
+     main = "Using Logistic Regression for Classification")
+legend( "bottomright", legend = c("Malignant", "Benign", "Decision Boundary"), lty = c(1, 1, 2), lwd = c(2.5, 2.5, 2.5), col = c("dodgerblue", "darkorange", "black"))
+
+slope = coef(fit_glm)[2]/(-coef(fit_glm)[3])
+intercept = coef(fit_glm)[1]/(-coef(fit_glm)[3])
+abline(intercept, slope, lwd = 1, lty = 2)
+```
+
+
+***
+
+# Exercise 3 (Sensitivity and Specificity of Cancer Detection)
+
+**[5 points]** Continue with the cancer data from Exercise 1. Again consider an additive logistic regression that considers only two predictors, `radius` and `symmetry`. Report test sensitivity, test specificity, and test accuracy for three classifiers, each using a different cutoff for predicted probability:
+
+- $c = 0.1$
+- $c = 0.5$
+- $c = 0.9$
+
+Consider `M` to be the "positive" class when calculating sensitivity and specificity. Summarize these results using a single well-formatted table.
+
+**Solution**
+
+```{r, message=FALSE, warning=FALSE}
+get_logistic_result = function(mod, data, res = "y", pos = 1, neg = 0, cut = 0.5) {
+  probs = predict(mod, newdata = data, type = "response")
+  preds = ifelse(probs > cut, pos, neg)
+  preds = as.factor(preds)
+  test_table = table(predicted = preds, wisc_test$class)
+  confusion_matrix = caret::confusionMatrix(test_table, positive = pos)
+  Accuracy = confusion_matrix$overall["Accuracy"] 
+  Sensitivity = confusion_matrix$byClass["Sensitivity"] 
+  Specificity = confusion_matrix$byClass["Specificity"]
+  result = c(Accuracy, Sensitivity, Specificity)
+  return(result)
+}
+
+cutoff = c(0.1, 0.5, 0.9)
+dif_cut_result = list()
+dif_cut_result = sapply(cutoff, get_logistic_result, mod = fit_glm, data = wisc_test, res = "class", pos = "M", neg = "B")
+```
+
+```{r}
+glm_results = data.frame(
+  dif_cut_result[1, ],
+  dif_cut_result[2, ],
+  dif_cut_result[3, ]
+)
+colnames(glm_results) = c("Accuracy", "Sensitivity", "Specificity")
+rownames(glm_results) = c("cutoff = 0.1", "cutoff = 0.5","cutoff = 0.9")
+
+knitr::kable(glm_results)
+```
+
+
+***
+
+# Exercise 4 (Comparing Classifiers)
+
+**[7 points]** Use the data found in [`hw05-trn.csv`](hw05-trn.csv) and [`hw05-tst.csv`](hw05-tst.csv) which contain train and test data respectively. Use `y` as the response. Coerce `y` to be a factor after importing the data if it is not already.
+
+Create pairs plot with ellipses for the training data, then train the following models using both available predictors:
+
+- Additive Logistic Regression
+- LDA (with Priors estimated from data)
+- LDA with Flat Prior
+- QDA (with Priors estimated from data)
+- QDA with Flat Prior
+- Naive Bayes (with Priors estimated from data)
+
+Calculate test and train error rates for each model. Summarize these results using a single well-formatted table.
+
+**Solution**
+
+```{r, message=FALSE, warning=FALSE}
+traindata = read_csv("hw05-trn.csv")
+testdata = read_csv("hw05-tst.csv")
+traindata$y = as.factor(traindata$y)
+testdata$y = as.factor(testdata$y)
+```
+
+Create pairs plot with ellipses for the training data
+```{r, warning=FALSE}
+library(ellipse)
+caret::featurePlot(x = traindata[, c("x1", "x2")],
+                   y = traindata$y,
+                   plot = "ellipse",
+                   auto.key = list(columns = 4))
+```
+
+train the following models using both available predictors
+```{r, message=FALSE, warning=FALSE}
+library(nnet)
+library(klaR)
+glmfit = multinom(y ~ ., data = traindata, trace = FALSE)
+ldafit = lda(y ~ ., data = traindata)
+lda_flat = lda(y ~ ., data = traindata, prior = c(1, 1, 1, 1) / 4)
+qdafit = qda(y ~ ., data = traindata)
+qda_flat = qda(y ~ ., data = traindata, prior = c(1, 1, 1, 1) / 4)
+nbfit = NaiveBayes(y ~ ., data = traindata)
+```
+
+```{r}
+trnpred = list()
+testpred = list()
+
+trnpred[[1]] = predict(glmfit, newdata = traindata)
+trnpred[[2]] = predict(ldafit, newdata = traindata)$class
+trnpred[[3]] = predict(lda_flat, newdata = traindata)$class
+trnpred[[4]] = predict(qdafit, newdata = traindata)$class
+trnpred[[5]] = predict(qdafit, newdata = traindata)$class
+trnpred[[6]] = predict(nbfit, newdata = traindata)$class
+
+testpred[[1]] = predict(glmfit, newdata = testdata)
+testpred[[2]] = predict(ldafit, newdata = testdata)$class
+testpred[[3]] = predict(lda_flat, newdata = testdata)$class
+testpred[[4]] = predict(qdafit, newdata = testdata)$class
+testpred[[5]] = predict(qdafit, newdata = testdata)$class
+testpred[[6]] = predict(nbfit, newdata = testdata)$class
+
+get_error = function(actual, preds){
+    mean(actual != preds)
+}
+trn_error = vector()
+tst_error = vector()
+for (i  in 1:6) {
+    trn_error[i] = get_error(actual = traindata$y, preds = trnpred[[i]])
+    tst_error[i] = get_error(actual = testdata$y, preds = testpred[[i]])
+}
+```
+
+```{r}
+model_results = data.frame(
+  c("glm", "LDA", "LDA_flat", "QDA", "QDA_flat", "NB"),
+  trn_error,
+  tst_error
+)
+colnames(model_results) = c("Classifier", "Train Error", "Test error")
+rownames(model_results) = NULL
+
+knitr::kable(model_results)
+```
+
+
+***
+
+# Exercise 5 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises.
+
+**(a)** Which $k$ performs best in Exercise 1?
+
+**When k=1, we get the smallest train error and test error.**
+
+**(b)** In Exercise 4, which model performs best?
+
+**Among all 6 models, the flat lda model got the smallest test error, which is 0.16875.**
+
+**(c)** In Exercise 4, why does Naive Bayes perform poorly?
+
+**Because Naive Bayes assumes that the predictors are independent, which is a very strong assumption. However from the pairs plot, we can see that there is some correlation between x1 and x2. And that's why it preform poorly.**
+
+**(d)** In Exercise 4, which performs better, LDA or QDA? Why?
+
+**I think the QDA model performs better. QDA actually gets much smaller train error than LDA and the nearly same test error with LDA. And I guess that's because QDA assumes a quadratic decision boundary for the classification and LDA only assume a linear relationship which cannot great separate the observations.**
+
+**(e)** In Exercise 4, which prior performs better? Estimating from data, or using a flat prior? Why?
+
+** I think using a flat prior would give us a better result. For LDA, the flat model obviously get much better model than the previous one. For QDA, two model get the same result. **
+
+**(f)** In Exercise 4, of the four classes, which is the easiest to classify?
+
+```{r}
+result = list()
+for (i in 1:6) {
+   right_index = which(testdata$y == testpred[[i]])
+   right = testdata[right_index,]
+   result[[i]] = summary(right$y)
+}
+result
+summary(testdata$y)
+```
+
+**From the above classify result, we can find that each class in testdata has 1000 observations, and  class B always get the most right counts. Therefore class B is the easiest one to classify.**  
+
+**(g)** [**Not Graded**] In Exercise 3, which classifier would be the best to use in practice?
+
+**I think it depends. In some specific fields like medical area, people may care more about sensitivity and we can sacrifice some accuracy to get higher sensitivity, in which case we should choose smaller cut-off value like 0.1. While in some other areas things may be different.**
+
+
