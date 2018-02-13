@@ -238,7 +238,7 @@ knitr::kable(results, booktabs = TRUE, escape = TRUE)
 
 **(d)** Based on your results in Exercise 3, which of the three models do you think are providing unbiased predictions?
 
-**Model 1 and 2 both gets unbiaed predictions, in which k are 1 and 10. **
+**Model 1 and 2 both gets unbiaed predictions, in which k are 1 and 10.**
 
 **(e)** Based on your results in Exercise 3, which model is predicting best at $x = 0.90$?
 
