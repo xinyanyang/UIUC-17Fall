@@ -1,0 +1,503 @@
+---
+title: "Secret Behind Online News Popularity"
+author: "Fan liu, Xinyan Yang, Yang Yu"
+date: "December 13, 2017"
+output:
+  pdf_document: default
+  html_document: default
+fontsize: 10pt
+link-citations: yes
+linkcolor: Cerulean
+citecolor: Cerulean
+abstract: Due to the development of internet, browsing news online is increasingly
+  popular. In this report, we are going to figure out what are the most important
+  factors of online news popularity. Five different regression models were built and
+  LASSO was selected for its low test RMSE and easy-to-explain feature.
+urlcolor: Cerulean
+---
+
+```{r set-options, include = FALSE}
+# setting some default chunk options
+# figures will be centered
+# code will not be displayed unless `echo = TRUE` is set for a chunk
+# messages are suppressed
+# warnings are suppressed
+knitr::opts_chunk$set(fig.align = "center", echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r load-packages, message=FALSE, warning=FALSE}
+# all packages needed should be loaded in this chunk
+library(knitr)
+library(readr)
+library(caret)
+library(glmnet)
+library(gbm)
+```
+
+# Introduction
+
+<p align="center">With the development of internet, people browse the latest online news with an increasing frequency. Thus, predicting the online news popularity has become a social research trend since it is valuable for authors, content providers, advertisers and even politicians (e.g., to understand or influence public opinion). What's more, the machine learning including supervised methods and unsupervised methods breaking stricts of traditional statistical models can get a more higher accuracy of the prediction. So, we consider four most common models which are K Nearest Neighbors, Random Forest, Boosting and Elastic Net to build a model to predict the online news popularity.</p>
+
+Our dataset comes from  UCI (http://archive.ics.uci.edu/ml/datasets/Online+News+Popularity). It summarizes a heterogeneous set of features about articles published by Mashable (www.mashable.com) on January 8, 2015 in a period of 2013-2014. Mashable is a digital media website founded in 2005. As one of the most influential media in America, Mashable was described as a "one stop shop" for social media. There are 7 channels on Mashable including Video, Entertainment, Culture, Tech, Science, Business and Social good. The data does not share the original content of these articles but some statistics associated with it. The original content be publicly accessed and retrieved using the provided urls. 
+
+The whole data contains a response variable "shares" and 60 predictors which describe the different features of the news. We choose to build regression models to get some sense in what are most important predictors that would influence online news popularity. And we choose the most recent data in 2014 because of the quick development of online news and the most recent data can show more information. Finally, since Lasso has low test RMSE among all four models and the coefficients of predictors make it more easier to explain compared to the random forest model, we choose Lasso as our final model and we will explain some important predictors selected by the model in detail. 
+ 
+
+
+# Materials 
+
+
+Our raw data coming from UCI contains 39,797 observations and 61 variables including the response "shares" and other 60 variables representing different features of articles published on Mashable. And these variables are extracted from HTML code by Python. Each row represents an article.
+
+News changed so fast due to convenient media tools. And people is becoming more and more willing to open mind to new things. Therefore, we think the most updatest data would give us more correct guide of online news popularity. In the end, we decided to choose data from 2014 which contains 21,445 observations. 
+
+### Independent Variables 
+
+During the data processing, we also found that "timedelta" vaiable is wrongly computed according to the date we extract from the "url" varaible. So we self-compute the "timedelta" column to replace the original one and remove the "url" variable which is website information. The following table shows the descriptions of some of our variables.
+
+**Variable Table**
+
+| Variable                   | Description                                             |
+|----------------------------|---------------------------------------------------------|
+| url                        | URL of the article (non-predictive)                     |
+| n_tokens_title             | Number of words in the title                            |
+| n_tokens_content           | Number of words in the content                          |
+| n_unique_tokens            | Rate of unique words in the content                     |
+| n_non_stop_unique_tokens   | Rate of unique non-stop words in the content            |
+| num_hrefs                  | Number of links                                         |
+| num_self_hrefs             | Number of links to other articles published by Mashable |
+| num_imgs                   | Number of images                                        |
+| num_videos                 | Number of videos                                        |
+| average_token_length       | Average length of the words in the content              |
+| global_rate_positive_words | Rate of positive words in the content                   |
+| global_rate_negative_words | Rate of negative words in the content                   |
+| title_subjectivity         | Title subjectivity                                      |
+| shares                     | Number of shares (target)                               |
+
+Here are the column names of the dataset after all data preprocessing.
+
+
+```{r, message=FALSE, warning=FALSE}
+News = read_csv("OnlineNewsPopularity.csv")
+News = News[-c(1:79), ]
+#choose the data from 2014
+news_2014 = News[18121:39565,]
+```
+
+```{r}
+news_2014$date = substr(news_2014$url, 21, 30)
+news_2014$date = as.character.Date(news_2014$date)
+data_acq_time = "2015/01/08"
+news_2014$timedelta = as.numeric(difftime(rep(data_acq_time, 21445), 
+                       news_2014$date ,
+                       units = c("days")))
+#delete the original url 
+news_2014 = news_2014[, -c(1,62)]
+```
+
+```{r}
+news = news_2014
+#news$shares = factor(ifelse(news_2014$shares > median(news_2014$shares), "pop", "nonp"))
+#transform the categorical variable 
+news$data_channel_is_entertainment = as.factor(news$data_channel_is_entertainment)
+news$data_channel_is_lifestyle = as.factor(news$data_channel_is_lifestyle)
+news$data_channel_is_bus = as.factor(news$data_channel_is_bus)
+news$data_channel_is_socmed = as.factor(news$data_channel_is_socmed)
+news$data_channel_is_tech = as.factor(news$data_channel_is_tech)
+news$data_channel_is_world = as.factor(news$data_channel_is_world)
+news$weekday_is_monday = as.factor(news$weekday_is_monday)
+news$weekday_is_tuesday = as.factor(news$weekday_is_tuesday)
+news$weekday_is_wednesday = as.factor(news$weekday_is_wednesday)
+news$weekday_is_thursday = as.factor(news$weekday_is_thursday)
+news$weekday_is_friday = as.factor(news$weekday_is_friday)
+news$weekday_is_saturday = as.factor(news$weekday_is_saturday)
+news$weekday_is_sunday = as.factor(news$weekday_is_sunday)
+news$is_weekend = as.factor(news$is_weekend)
+```
+
+
+```{r, echo=TRUE}
+names(news)
+```
+
+
+### Dependent Variables
+
+Before building the models, we feel it necessary to check the distribution of the response variable shares. 
+
+```{r, echo=TRUE}
+par(mfrow = c(1,2))
+hist(news$shares, main = "Histogram of Shares", col = "dodgerblue")
+boxplot(news$shares, main = "Boxplot of Shares", col = "darkorange")
+
+```
+
+
+
+Obviously, we can see that there is an outlier with extremely large value, and it's too large that we even cannot see the distribution of shares clearly. Therefore we decided to delete this observation.
+
+```{r}
+news = news[-which(news$shares > 600000), ]
+```
+
+
+Since the distribution of shares is extremely right-skewed, we choose to show the distribution of shares within 0 to 10000.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data = news, aes(shares)) + 
+    geom_histogram(bins = 50) +
+    stat_function(fun = dnorm, 
+                  colour = "red",
+                  arg = list(mean = mean(news$shares, na.rm = TRUE),
+                  sd = sd(news$shares, na.rm = TRUE))) +
+    scale_x_continuous(limits = c(0, 10000))
+```
+
+
+
+
+# Methods
+
+Our goal is to explore which factors would affect articles¡¯ popularity, so we used shares as our response and other variables as our predictors. In order to choose a best performance model, we tried five methods, K Nearest Neighbors, Random Forest, Boosting, Lasso and Elastic Net. These methods would deal with different kinds of situations, such as linear, nonlinear and other complicated relationships. 
+
+In order to avoid overfitting and test different methods, we splitted our dataset into train data and test data, and used test RMSE to compare these models.
+
+```{r, echo=TRUE}
+set.seed(9)
+train_index = sample(nrow(news), size = trunc(0.60 * nrow(news)))
+news_trn = news[train_index, ]
+news_tst = news[-train_index, ]
+```
+
+
+$$
+\text{RMSE}\left(f(x), \hat{f}(x)\right) = 
+\sqrt{\frac{1}{n}\sum_{i=1}^{n} \left[  \left(f(x) - \hat{f}(x) \right)^2 \right]}
+$$
+
+```{r, echo=TRUE}
+#write a function to compute RMSE
+calc_rmse = function(pre_mod, actual){
+    sqrt(mean((pre_mod - actual)^2))
+}
+```
+
+
+## KNN
+
+For the k-nearest neighbours model, we consider both the scaling case and unscaling case and consider k belongs to {10, 20, 30, 40, 50, 60, 65, 70}. We used caret package to train models and used 5-fold cross-validation as resampling method.
+
+
+```{r echo = TRUE}
+set.seed(9)
+
+#scaling KNN
+knn_scale_mod = train(
+  form = shares ~ .,
+  data = news_trn,
+  trControl = trainControl(method = "cv", number = 5),
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = expand.grid(k = c(10, 20, 30, 40, 50, 60, 65, 70))
+)
+
+#unscaling KNN
+set.seed(9)
+knn_unscale_mod = train(
+  form = shares ~ .,
+  data = news_trn,
+  trControl = trainControl(method = "cv", number = 5),
+  method = "knn",
+  tuneGrid = expand.grid(k = c(10, 20, 30, 40, 50, 60, 65, 70))
+)
+
+```
+
+```{r}
+# plots of rmse versus tuning parameters for the two k-nearest neighbors models 
+par(mfrow = c(1, 2))
+plot(knn_scale_mod,
+main = "Cross-Validate RMSE vs Neighbors(with scaling data)")
+plot(knn_unscale_mod,
+main = "Cross-Validate RMSE vs Neighbors(with unscaling data)")
+```
+
+The plot shows that the best k for the scaling case would lies between 60 to 65 and that the scaling case performs better than the unscaling case.
+
+```{r}
+knn_scale_pred = predict(knn_scale_mod, newdata = news_tst)
+```
+
+```{r}
+plot(knn_scale_pred, news_tst$shares, 
+     xlab = "Predicted", ylab = "Actual", 
+     xlim = c(0, 20000), ylim = c(0, 60000),
+     main = "Predicted vs Actual: KNN with Scaling Predictors, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+```
+
+
+
+## Random Forest
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+set.seed(9)
+rf_mod = train(
+    form = shares~.,
+    data = news_trn,
+    trControl = trainControl(method = "cv", number = 5),
+    method = "ranger",
+    tuneGrid = expand.grid(.mtry = c(5, 10, 17, 20), .splitrule = "extratrees")
+)
+
+```
+
+```{r}
+rf_pred = predict(rf_mod, newdata = news_tst)
+```
+
+
+```{r, echo=FALSE}
+plot(rf_pred, news_tst$shares, 
+     xlab = "Predicted", ylab = "Actual",
+     xlim = c(0, 20000), ylim = c(0, 70000),
+     main = "Predicted vs Actual: Random Forest, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+```
+
+
+## Boosting 
+
+```{r, echo=TRUE, fig.height = 13, fig.width = 30, message = FALSE, warning = FALSE}
+set.seed(9)
+boost_mod = gbm(shares ~ ., 
+                data = news_trn, 
+                distribution = "gaussian",
+                n.trees = 100, 
+                interaction.depth = 3:5, 
+                n.minobsinnode = 10,
+                shrinkage = 0.1,
+                cv.folds = 5)
+
+tibble::as_tibble(summary(boost_mod))
+```
+
+```{r}
+boost_cv_rmse = calc_rmse(predict(boost_mod, news_trn), news_trn$shares)
+boost_pre = predict(boost_mod, news_tst)
+boost_rmse = calc_rmse(boost_pre, news_tst$shares)
+```
+
+```{r, echo=FALSE}
+plot(boost_pre, news_tst$shares, 
+     xlab = "Predicted", ylab = "Actual", 
+     xlim = c(0, 20000), ylim = c(0, 70000),
+     main = "Predicted vs Actual: Boosting, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+```
+
+We can see that the boosting plot is different from the obvious two plots in that it barely has any predicted values fall in (0, 2500).
+
+
+## Elastic Net
+
+
+```{r, echo=TRUE}
+set.seed(9)
+elnet_mod = train(
+  form = shares ~ ., 
+  data = news_trn,
+  method = "glmnet",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneLength = 10
+)
+
+elnet_mod$bestTune
+```
+
+```{r}
+elnet_pred = predict(elnet_mod, newdata = news_tst)
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+plot(elnet_pred, news_tst$shares, 
+     xlab = "Predicted", ylab = "Actual", 
+     xlim = c(0, 20000), ylim = c(0, 70000),
+     main = "Predicted vs Actual: Elastic Net, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+```
+
+
+
+## Lasso
+
+```{r, echo=TRUE}
+set.seed(9)
+X = model.matrix(shares ~ ., news_trn)[, -1]
+y = news_trn$shares
+
+par(mfrow = c(1, 2))
+lasso_mod2 = glmnet(X, y, alpha = 1)
+plot(lasso_mod2)
+plot(lasso_mod2, xvar = "lambda", label = TRUE)
+```
+
+
+The two plots illustrate how much the coefficients are penalized for different values of lambda. We can notice that only 4 variables have large coefficients at first, with the growth of lambda, most variables become zero.
+
+We use cross-validation to select a good lambda value. The plot illustrates the MSE for the lambda considered. Two lines are drawn. The first is the lambda that gives the smallest MSE. The second is the lambda that gives an MSE within one standard error of the smallest.
+
+```{r, echo=TRUE}
+set.seed(9)
+lasso_mod = cv.glmnet(X, y, alpha = 1)
+lasso_cv_rmse = calc_rmse(predict(lasso_mod, newx = X), news_trn$shares)
+plot(lasso_mod)
+```
+
+The above plot shows that there is no significant differences between different lambda, and we could obtain 32 variables if we pick the lambda that gives the smallest MSE.
+
+
+```{r, echo=TRUE}
+#fitted coefficients, using minimum lambda
+lasso_coef = coef(lasso_mod, s = "lambda.min")
+name = rownames(coef(lasso_mod, s = "lambda.min"))[which(coef(lasso_mod, s = "lambda.min") != 0)]
+name
+```
+
+
+```{r}
+lasso_pre = predict(lasso_mod, 
+                    model.matrix(shares ~ ., news_tst)[, -1], 
+                    s = "lambda.min") 
+lasso_rmse = calc_rmse(lasso_pre, news_tst$shares)
+```
+
+
+### RMSE table
+
+```{r}
+get_best_result = function(caret_fit) {
+best = which(rownames(caret_fit$results) == rownames(caret_fit$bestTune))
+best_result = caret_fit$results[best,]
+rownames(best_result) = NULL
+best_result
+}
+```
+
+```{r}
+model_list = list(knn_scale_mod, knn_unscale_mod, rf_mod, elnet_mod)
+best_results = sapply(model_list, get_best_result)
+cv_rmse = rep(0, 6)
+tst_rmse = rep(0, 6)
+for (i in 1:4) {
+cv_rmse[i] = best_results[[i]]$RMSE
+pred = predict(model_list[[i]], newdata = news_tst)
+tst_rmse[i] = calc_rmse(pre_mod = pred, actual = news_tst$shares)
+}
+cv_rmse[5] = lasso_cv_rmse
+tst_rmse[5] = lasso_rmse
+cv_rmse[6] = boost_cv_rmse
+tst_rmse[6] = boost_rmse
+```
+
+
+```{r}
+results = data.frame(cv_rmse, 
+                     tst_rmse)
+rownames(results) = c("KNN(scaling predictors)",
+                      "KNN(unscaling predictors)",
+                      "Random Forest",
+                      "Elastic Net",
+                      "Lasso",
+                      "Boosting")
+knitr::kable(results)
+```
+
+From the table we can see that random forest has achieved the lowest RMSE and lasso got the nearest small RMSE. Meantime, Lasso would automatically selected significant variables. In general, Lasso performed pretty good on test data and would help us find out influences of online news popularity. Therefore we chose Lasso as our final model. 
+
+# Discussion
+
+```{r}
+lasso_coef
+```
+
+
+As we can see, Lasso has already picked the significant variables for us and shrinked the other insignificant variables' coefficients to be zero. And next we will discuss these variables' influence on the shares in details.
+
+
+**Timedelta** shows time information between the day the news published and the day we acquired the data. It ranges from 12 to 378 days. According to the result, we found that if an article was published longer, its shares tend to increase. This satisfied our common sense. The longer an article was published, the more audiences would read it. More reading definitely would increase shares.
+
+
+There are five variables related to **LDA topics** , which measure the closeness of articles to five different LDA topics. The authors applied Latent dirichlet allocation (LDA) algorithm to all Mashable texts (known before publication) in order to identify the five top relevant topics and then measure the closeness of current article to such topics. Unfortunately, we still cannot  figure out the what these five LDA topics are after looking through the authors¡¯ original  paper. However we can still tell that the closeness to certain topic could influence the shares anyway. Here as you can see, if the news is more close to LDA_03 topic, it could significantly gain more shares. 
+
+
+About the features in the **words category**, we can see that number of words in the title,  article and average word length can both have influence on the shares while rate of non-stop words, unique non-stop words and unique words have little to do with the shares.  And we think this may because the readers are more focus on the contents itself instead of the writing style. 
+
+
+When it comes to the **data channel category**, we find that certain data channels like  technology has positive effect on the shares while lifestyle, entertainment and bus channels have negative effect on the shares. And the world and social media channel have no effect on the shares compared to the others. This suggests that the editors should put more emphasis on the specific topic like technology instead of lifestyle, entertainment and bus if they want more shares.
+
+
+About the **keywords category**, it is obvious that keywords can have a great effect on the shares of articles since most variables in this category have a non-zero coefficient, which suggests that the authors should appropriately increase amount of keywords in their articles to receive more attention and shares.
+
+
+**The links** embedded in the articles can also have something to do with the shares. As we can see, increasing the number of links  would help the articles gain more attention. At the same time, the number of images and videos have little influence on the shares itself  and the reason we guess may still be that the readers are more focus on the contents itself. 
+
+
+Besides the number of references, **popular referenced articles** would play an important role in affecting shares, like self_reference_max_shares which means maximum shares of referenced referenced articles in Mashable, and self_reference_avg_shares which means average shares of referenced articles in Mashable. From the above we found if an article¡¯s referenced article has more shares, this article tends to be shared more. Referenced articles¡¯ shares have positive effect on original articles. This is because articles with more shares always contain hot topics or the public interested content and referring these articles implies an article is also related to topics which would grab the public¡¯s attention. As a result, this article¡¯s shares tend to increase.
+
+
+**Publishing time** is another factor which would affect shares. Our result indicates articles published on Sunday usually acquire more shares, compared with other weekdays. This is consistent with our common sense. People always have more leisure time on Sunday to search online news and discuss interesting topics and hot topics with families and friends. Sharing is good way for them to discuss and communicate. Therefore, being published on Sunday would increase an article¡¯s shares. Besides, publishing on Thursday and Friday would have obvious decrease on shares, maybe due to busy time on working and planning weekends.
+
+
+Sometimes, **subjectivity and positive words** would also affect sharing. Global_subjectivity represents text subjectivity. From the above result, we can see if an article contains more subjective content and discussion, its shares tends to increase, which means audiences would like to read those articles with subjective thinking and opinion. Generally, compared with objective information, subjective thinking would attract people more and arise hot discussion, so more subjective articles would have more shares. Global_rate_positive_words means rate of positive words in the content. The result above implies if an article¡¯s have more positive words, its shares tend to decrease. Maybe high rate of positive words would make people feel bored with its statement.
+
+
+**Title** is an article¡¯s core. Appealing titles would always attract people at first glance and drive them to read the whole article. Our result indicates subjective title would help an article acquire more shares, which means people are willing to read articles with self-thinking. Meantime, the result said polar title would help an article obtain more shares. Maybe this is because polar titles usually generate hot discussion among audiences and audiences tend to share these articles to communicate with others. Therefore, our research indicates if authors expect their articles acquire more shares, they are supposed to create a subjective and polar title to attract more attention. 
+
+
+
+
+# Conclusion
+
+In this project, our objective is to figure out the key factors affecting the online news popularity and then give some suggestions to writers and online news websites. During the model selection, we compared five methods including K Nearest Neighbors, Random Forest, Boosting, Lasso and Elastic Net. According to their RMSE, we finally chose the Lasso model with RMSE as 7901. Fortunately, we can also get a meaningful interpretation by Lasso. In the Lasso model, there were 31 variables left. From our final result, we give following suggestions:
+
+1. As for the words category, more words always come with more shares no matter in the context or in the title. So we suggest writers write as more information as they can.
+
+2. Articles related to technique tend to be shared more, so if authors expect more shares, following latest technical development would attract more audiences.
+
+3. Keywords, useful links and references all have positive effects on news popularity, so we suggest writers use keywords more often to make the article at hot topics and use more useful links and references to convince people. 
+
+4. Publishing time should be taken into account when trying to acquire more shares. Sunday is a good choice for gain popularity.
+
+5. Subjective and polar titles and contexts always attract more shares. Writes are supposed to include some self-thinking and opinions.
+
+
+\newpage
+
+# Reference
+
+1. UCI Machine Learning Repository: Online News Popularity Data Set. (2017). Archive.ics.uci.edu. Retrieved 19 December 2017, from http://archive.ics.uci.edu/ml/datasets/Online+News+Popularity
+
+2. Fernandes, K., Vinagre, P., & Cortez, P. (2015). A Proactive Intelligent Decision Support System for Predicting the Popularity of Online News. Progress In Artificial Intelligence, 535-546. http://dx.doi.org/10.1007/978-3-319-23485-4_53
+
+
+
+
+
+
+
+
+
+
+
+
+
