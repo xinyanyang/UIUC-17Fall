@@ -17,7 +17,7 @@ After reading in the data as `hw01_data`, use the following code to test-train s
 
 ```{r, message=FALSE, warning=FALSE}
 library(readr)
-hw01_data <- read_csv("C:/Users/yangxinyan/Desktop/courses/430/hw/hw01/hw01-data.csv")
+hw01_data <- read_csv("hw01-data.csv")
 ```
 
 ```{r}
