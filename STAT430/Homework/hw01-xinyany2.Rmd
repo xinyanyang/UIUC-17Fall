@@ -1,0 +1,214 @@
+---
+title: "Homework 01"
+author: "STAT 430, Fall 2017"
+date: 'Due: Friday, September 15, 11:59 PM'
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](../syllabus/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1
+
+**[10 points]** This question will use data in a file called [`hw01-data.csv`](hw01-data.csv). The data contains four predictors: `a`, `b`, `c`, `d`, and a response `y`.
+
+After reading in the data as `hw01_data`, use the following code to test-train split the data.
+
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+hw01_data <- read_csv("C:/Users/yangxinyan/Desktop/courses/430/hw/hw01/hw01-data.csv")
+```
+
+```{r}
+set.seed(42)
+train_index = sample(1:nrow(hw01_data), size = round(0.5 * nrow(hw01_data)))
+train_data = hw01_data[train_index, ]
+test_data = hw01_data[-train_index, ]
+```
+
+Next, fit four linear models using the training data:
+
+- Model 1: `y ~ .`
+- Model 2: `y ~ . + I(a ^ 2) + I(b ^ 2) + I(c ^ 2)`
+- Model 3: `y ~ . ^ 2 + I(a ^ 2) + I(b ^ 2) + I(c ^ 2)`
+- Model 4: `y ~ a * b * c * d + I(a ^ 2) + I(b ^ 2) + I(c ^ 2)`
+
+
+```{r}
+mod_1 = lm(y ~ ., data=train_data)
+mod_2 = lm(y ~ . + I(a ^ 2) + I(b ^ 2) + I(c ^ 2), data = train_data)
+mod_3 = lm(y ~ . ^ 2 + I(a ^ 2) + I(b ^ 2) + I(c ^ 2), data = train_data)
+mod_4 = lm(y ~ a * b * c * d + I(a ^ 2) + I(b ^ 2) + I(c ^ 2), data = train_data)
+```
+
+For each of the models above, report:
+
+  - Train RMSE
+  - Test RMSE
+  - Number of Parameters, Excluding the Variance
+  
+To receive full marks, arrange this information in a well formatted table. Also note which model is best for making predictions.
+
+**Solution 1**
+
+Write the rmse function as below
+```{r}
+rmse = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+```
+
+Create a function that makes code more easier to read
+```{r}
+get_rmse = function(model, data, response) {
+  rmse(actual = data[, response], 
+       predicted = predict(model, data))
+}
+```
+
+Create a list of the models fit
+```{r}
+model_list = list(mod_1, mod_2, mod_3, mod_4)
+```
+
+Then obtain train RMSE and test RMSE for each
+```{r}
+train_rmse = sapply(model_list, get_rmse, data = train_data, response = "y")
+test_rmse = sapply(model_list, get_rmse, data = test_data, response = "y")
+```
+
+| Model   | Train RMSE      | Test RMSE       | Predictors              |
+|---------|-----------------|-----------------|-------------------------|
+| `mod_1` | `r train_rmse[1]` | `r test_rmse[1]` | `r length(coef(mod_1))` |
+| `mod_2` | `r train_rmse[2]` | `r test_rmse[2]` | `r length(coef(mod_2))` |
+| `mod_3` | `r train_rmse[3]` | `r test_rmse[3]` | `r length(coef(mod_3))` |
+| `mod_4` | `r train_rmse[4]` | `r test_rmse[4]` | `r length(coef(mod_4))` |
+
+From the above results,we notice that the **mod_3** has the smallest test RMSE, and it has fewer predictors than mod_4, therefore *mod_3 is best for making predictions*.
+
+
+**[Not Graded]** For fun, find a model that outperforms each of the models above. *Hint:* Consider some exploratory data analysis. *Hint:* Your instructor's solution uses a model with only seven parameters. Yours may have more.
+
+
+***
+
+# Exercise 2
+
+**[10 points]** For this question we will use the `Boston` data from the `MASS` package. Use `?Boston` to learn more about the data.
+
+```{r}
+library(readr)
+library(MASS)
+library(tibble)
+data(Boston)
+Boston = as_tibble(Boston)
+```
+
+Use the following code to test-train split the data.
+
+```{r}
+set.seed(42)
+boston_index = sample(1:nrow(Boston), size = 400)
+train_boston = Boston[boston_index, ]
+test_boston  = Boston[-boston_index, ]
+```
+
+Fit the following linear model that uses `medv` as the response.
+
+```{r}
+fit = lm(medv ~ . ^ 2, data = train_boston)
+```
+
+Fit two additional models, both that perform worse than `fit` with respect to prediction. One should be a smaller model. The other should be a larger mode. Call them `fit_smaller` and `fit_larger` respectively. Any "smaller" model should be nested in any "larger" model.
+
+Report these three models as well as their train RMSE, test RMSE, and number of parameters. Note: you may report the models used using their `R` syntax. To receive full marks, arrange this information in a well formatted table.
+
+
+**Solution 2**
+
+First try to fit a smaller model and a larger model
+```{r}
+fit_smaller = lm(medv ~ ., data = train_boston)
+fit_larger = lm(medv ~ . ^ 3, data = train_boston)
+```
+
+create a list of the models fit
+```{r}
+model_list2 = list(fit_smaller,fit,fit_larger)
+```
+
+then obtain train RMSE, test RMSE, and model complexity for each
+```{r, warning=FALSE}
+train_rmse = sapply(model_list2, get_rmse, data = train_boston, response = "medv")
+test_rmse = sapply(model_list2, get_rmse, data = test_boston, response = "medv")
+```
+
+| Model   | Train RMSE      | Test RMSE       | Predictors              |
+|---------|-----------------|-----------------|-------------------------|
+| `fit` | `r train_rmse[2]` | `r test_rmse[2]` | `r length(coef(fit))+1` |
+| `fit_smaller` | `r train_rmse[1]` | `r test_rmse[1]` | `r length(coef(fit_smaller))+1` |
+| `fit_larger` | `r train_rmse[3]` | `r test_rmse[3]` | `r length(coef(fit_larger))+1` |
+
+From the results above, we can find that the **fit** model has the lowest RMSE compared to the other two models. The *fit_smaller* model is underfitting and the *fit_larger* model is overfitting because it has very high test RMSE and much more predictors than the other two.Therefore the *fit* model has the best prediction for this data set in these three models. 
+
+***
+
+# Exercise 3
+
+**[10 points]** How do outliers affect prediction? Usually when fitting regression models for explanation, dealing with outliers is a complicated issue. When considering prediction, we can empirically determine what to do.
+
+Continue using the `Boston` data, training split, and models from Exercise 2. Consider the model stored in `fit` from Exercise 2. Obtain the standardized residuals from this fitted model. Refit this model with each of the following modifications:
+
+- Removing observations from the training data with absolute standardized residuals greater than 2.
+- Removing observations from the training data with absolute standardized residuals greater than 3.
+
+```{r}
+absolutestr = abs(rstandard(fit))
+train_boston2 <- train_boston[-which(absolutestr > 2), ]
+train_boston3 <- train_boston[-which(absolutestr > 3), ]
+fit2 = lm(medv ~ . ^ 2, data = train_boston2)
+fit3 = lm(medv ~ . ^ 2, data = train_boston3)
+```
+
+**(a)** Use these three fitted models, including the original model fit to unmodified data, to obtain test RMSE. Summarize these results in a table. Include the number of observations removed for each. Which performs the best? Were you justified modifying the training data?
+
+**Solution 3(a)**
+
+create a list of the models fit
+```{r}
+model_list3 = list(fit,fit2,fit3)
+```
+
+then obtain train RMSE and test RMSEfor each
+```{r, warning=FALSE}
+train_boston2_rmse = sqrt(mean((
+    train_boston2$medv - predict(fit2, train_boston2)) ^ 2))
+    test_boston2_rmse = sqrt(mean((test_boston$medv - predict(fit2, test_boston)) ^ 2))
+    train_boston3_rmse = sqrt(mean((train_boston3$medv - predict(fit3, train_boston3)) ^ 2))
+    test_boston3_rmse = sqrt(mean((test_boston$medv - predict(fit3, test_boston)) ^ 2))
+```
+
+| Model   | Train RMSE      | Test RMSE       | Removed Observations|
+|---------|-----------------|-----------------|---------------------|
+| `fit` | `r train_rmse[2]` | `r test_rmse[2]` |          0         |
+| `fit2` | `r train_boston2_rmse` | `r test_boston2_rmse` | `r sum(absolutestr>2)`|
+| `fit3` | `r train_boston3_rmse` | `r test_boston3_rmse` | `r sum(absolutestr>3)`|
+
+The **fit2** model has the smallest train rmse and test rmse among all these three models.Therefore the model that remove the observations from the training data with absolute standardized residuals greater than 2 performs best.
+
+I think modify the trainning data properly can help us remove the outliers and focus on the main features of the data, which is *acceptable*. And the test rmse also proves that the model predicts better after removing the outliers from the train data. But it may depends on the specific data because sometimes when we remove some data, we may lose some useful information too. So I think that when we have a new data set, we should always compare the models that fitted under the original dataset and the modified one before we make a conclusion.
+
+**(b)** Using the *best* of these three fitted models, create a 99% **prediction interval** for a new observation with the following values for the predictors:
+
+| crim    | zn   | indus | chas | nox    | rm    | age  | dis    | rad | tax | ptratio | black  | lstat |
+|---------|------|-------|------|--------|-------|------|--------|-----|-----|---------|--------|-------|
+| 0.02763 | 75.0 | 3.95  | 0    | 0.4280 | 6.595 | 22.8 | 5.4011 | 3   | 252 | 19.3    | 395.63 | 4.32  |
+
+**Solution 3(b)**
+
+```{r}
+new_obs = tibble(crim = 0.02763,zn = 75.0,indus = 3.95,chas = 0,nox = 0.4280,rm = 6.595,age = 22.8,dis = 5.4011,rad = 3,tax = 252,ptratio = 19.3,black = 395.63,lstat = 4.32)
+predict(fit2, newdata = new_obs, interval = "prediction", level = 0.99)
+```
+
