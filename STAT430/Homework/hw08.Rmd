@@ -1,0 +1,334 @@
+---
+title: "Homework 08"
+author: "Xinyan Yang"
+date: 'Due: Friday, November 10, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1 (Classifying Leukemia)
+
+**[10 points]** For this question we will use the data in [`leukemia.csv`](leukemia.csv) which originates from [Golub et al. 1999.](http://www.ncbi.nlm.nih.gov/pubmed/10521349)
+
+The response variable `class` is a categorical variable. There are two possible responses: `ALL` (acute myeloid leukemia) and `AML` (acute lymphoblastic leukemia), both types of leukemia. We will use the many feature variables, which are expression levels of genes, to predict these classes.
+
+Note that, this dataset is rather large and you may have difficultly loading it using the "Import Dataset" feature in RStudio. Instead place the file in the same folder as your `.Rmd` file and run the following command. (Which you should be doing anyway.) Again, since this dataset is large, use 5-fold cross-validation when needed.
+
+```{r, message = FALSE, warning = FALSE}
+library(readr)
+leukemia = read_csv("leukemia.csv", progress = FALSE)
+```
+
+For use with the `glmnet` package, it will be useful to create a factor response variable `y` and a feature matrix `X` as seen below. We won't test-train split the data since there are so few observations.
+
+```{r}
+y = as.factor(leukemia$class)
+X = as.matrix(leukemia[, -1])
+```
+
+Do the following:
+
+- Set a seed equal to your UIN.
+- Fit the full path of a logistic regression with both a lasso penalty and a ridge penalty. (Don't use cross-validation. Also let `glmnet` choose the $\lambda$ values.) Create side-by-side plots that shows the features entering (or leaving) the models.
+- Use cross-validation to tune an logistic regression with a lasso penalty. Again, let `glmnet` choose the $\lambda$ values. Store both the $\lambda$ that minimizes the deviance, as well as the $\lambda$ that has a deviance within one standard error. Create a plot of the deviances for each value of $\lambda$ considered. Use these two $\lambda$ values to create a grid for use with `train()` in `caret`. Use `train()` to get cross-validated classification accuracy for these two values of $\lambda$. Store these values.
+- Use cross-validation to tune an logistic regression with a ridge penalty. Again, let `glmnet` choose the $\lambda$ values. Store both the $\lambda$ that minimizes the deviance, as well as the $\lambda$ that has a deviance within one standard error. Create a plot of the deviances for each value of $\lambda$ considered. Use these two $\lambda$ values to create a grid for use with `train()` in `caret`. Use `train()` to get cross-validated classification accuracy for these two values of $\lambda$. Store these values.
+- Use cross-validation to tune $k$-nearest neighbors using `train()` in `caret`. Do not specify a grid of $k$ values to try, let `caret` do so automatically. (It will use 5, 7, 9.) Store the cross-validated accuracy for each. Scale the predictors.
+- Summarize these **seven** models in a table. (Two lasso, two ridge, three knn.) For each report the cross-validated accuracy and the standard deviation of the accuracy.
+
+**Solution**
+```{r, message=FALSE, warning=FALSE}
+set.seed(669675883)
+library(glmnet)
+```
+
+(a)
+Fit the full path of a logistic regression with both a lasso penalty and a ridge penalty.
+```{r}
+par(mfrow = c(1, 2))
+fit_ridge = glmnet(X, y, alpha = 0, family = "binomial")
+fit_lasso = glmnet(X, y, alpha = 1, family = "binomial")
+plot(fit_ridge)
+plot(fit_lasso)
+```
+
+(b)
+Use cross-validation to tune an logistic regression with a lasso penalty
+```{r}
+fit_lasso_cv = cv.glmnet(X, y, alpha = 1, nfolds = 5, family = "binomial")
+plot(fit_lasso_cv)
+```
+
+Use train() to get cross-validated classification accuracy for these two values of lambda.
+```{r, message=FALSE, warning=FALSE}
+lasso_lambda_grid = c(fit_lasso_cv$lambda.min, fit_lasso_cv$lambda.1se)
+library(caret)
+set.seed(669675883)
+
+lasso_fit = train(
+    form = class ~ .,
+    data = leukemia,
+    method = "glmnet",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneGrid = expand.grid(alpha = 1,
+                           lambda = lasso_lambda_grid)
+    )
+lasso_accuracy = lasso_fit$results$Accuracy
+lasso_sd = lasso_fit$results$AccuracySD
+```
+
+(c)
+Use cross-validation to tune an logistic regression with a ridge penalty
+```{r}
+fit_ridge_cv = cv.glmnet(X, y, alpha = 0, nfolds = 5, family = "binomial")
+plot(fit_ridge_cv)
+```
+
+Use train() to get cross-validated classification accuracy for these two values of lambda.
+```{r}
+ridge_lambda_grid = c(fit_ridge_cv$lambda.min, fit_ridge_cv$lambda.1se)
+
+set.seed(669675883)
+ridge_fit = train(
+    form = class ~ .,
+    data = leukemia,
+    method = "glmnet",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneGrid = expand.grid(alpha = 0,
+                           lambda = ridge_lambda_grid)
+    )
+ridge_accuracy = ridge_fit$results$Accuracy
+ridge_sd = ridge_fit$results$AccuracySD
+```
+
+
+(d)
+Use cross-validation to tune k-nearest neighbors
+```{r}
+set.seed(669675883)
+
+knn_scale = train(
+    form = class ~ .,
+    data = leukemia,
+    method = "knn",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 5)
+    )
+knn_accuracy = knn_scale$results$Accuracy
+knn_sd = knn_scale$results$AccuracySD
+```
+
+(e)
+Summarize these seven models in a table. (Two lasso, two ridge, three knn.) For each report the cross-validated accuracy and the standard deviation of the accuracy.
+```{r}
+Accuracy = c(lasso_accuracy, ridge_accuracy, knn_accuracy)
+Accuracy_sd = c(lasso_sd, ridge_sd, knn_sd)
+Tunning_para = c(lasso_lambda_grid, ridge_lambda_grid, knn_scale$results$k)
+
+results = data.frame(
+  Tunning_para,
+  Accuracy,
+  Accuracy_sd
+)
+rownames(results) = c("Lasso1", 
+                      "Lasso2", 
+                      "Ridge1", 
+                      "Ridge2",
+                      "KNN_scale1",
+                      "KNN_scale2",
+                      "KNN_scale3"
+                      )
+
+knitr::kable(results)
+```
+
+***
+
+# Exercise 2 (The Cost of College)
+
+**[10 points]** For this exercise, we will use the `College` data from the `ISLR` package. Familiarize yourself with this dataset before performing analyses. We will attempt to predict the `Outstate` variable.
+
+Test-train split the data using this code.
+
+```{r, message = FALSE, warning = FALSE}
+set.seed(42)
+library(ISLR)
+index = createDataPartition(College$Outstate, p = 0.75, list = FALSE)
+college_trn = College[index, ]
+college_tst = College[-index, ]
+```
+
+Train a total of **six** models using five-fold cross validation.
+
+- An additive linear model.
+- An elastic net model using additive predictors. Use a `tuneLength` of `10`.
+- An elastic net model that also considers all two-way interactions. Use a `tuneLength` of `10`.
+- A well-tuned KNN model.
+- A well-tuned KNN model that also considers all two-way interactions. (Should this work?)
+- A default-tuned random forest.
+
+Before beginning, set a seed equal to your UIN.
+
+```{r}
+set.seed(669675883)
+LinFit = train(
+    form = Outstate ~ .,
+    data = college_trn,
+    method = "lm",
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+```{r}
+set.seed(669675883)
+Elas_add = train(
+    form = Outstate ~ .,
+    data = college_trn,
+    method = "glmnet",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneLength = 10
+    )
+```
+
+```{r}
+set.seed(669675883)
+Elas_twoway = train(
+    form = Outstate ~ .^2,
+    data = college_trn,
+    method = "glmnet",
+    trControl = trainControl(method = "cv", number = 5),
+    tuneLength = 10
+    )
+```
+
+```{r}
+set.seed(669675883)
+knn_fit = train(
+    form = Outstate ~ .,
+    data = college_trn,
+    method = "knn",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+```{r}
+set.seed(669675883)
+knn_fit_twoway = train(
+    form = Outstate ~ .^2,
+    data = college_trn,
+    method = "knn",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(669675883)
+rf_model = train(
+    form = Outstate ~ .,
+    data = college_trn,
+    method = "rf",
+    trControl = trainControl(method = "cv", number = 5)
+    )
+```
+
+- Create a table which reports CV and Test RMSE for each.
+
+```{r}
+get_best_result = function(caret_fit) {
+    best = which(rownames(caret_fit$results) == rownames(caret_fit$bestTune))
+    best_result = caret_fit$results[best,]
+    rownames(best_result) = NULL
+    best_result
+}
+
+```
+
+```{r}
+model_list = list(LinFit, Elas_add, Elas_twoway, knn_fit, knn_fit_twoway, rf_model)
+
+best_results = sapply(model_list, get_best_result) 
+
+cv_rmse = rep(0, 6)
+tst_rmse = rep(0, 6)
+
+for (i in 1:6) {
+    cv_rmse[i] = best_results[[i]]$RMSE
+    pred = predict(model_list[[i]], newdata = college_tst)
+    tst_rmse[i] = calc_rmse(actual = college_tst$Outstate, predicted = pred)
+}
+```
+
+```{r}
+results2 = data.frame(
+  cv_rmse,
+  tst_rmse
+)
+rownames(results2) = c("Linear Regression", 
+                       "Elastic net",
+                       "Elastic net(two-way)",
+                       "KNN", 
+                       "KNN(two-way)", 
+                       "Random Forest")
+
+knitr::kable(results2)
+```
+
+
+# Exercise 3 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises. 
+
+### Leukemia
+
+**(a)** How many observations are in the dataset? How many predictors are in the dataset?
+
+**72 obervations and 5147 predictors**
+
+**(b)** Based on the deviance plots, do you feel that `glmnet` considered enough $\lambda$ values for lasso?
+
+**Yes.Because the plot shows that we get the minimum during a series of lambda values.**
+
+**(c)** Based on the deviance plots, do you feel that `glmnet` considered enough $\lambda$ values for ridge?
+
+**No. Because the plot shows a increasing trend for deviance and we don't know if there exists a lambda which smaller than the current 'best' one that can make the deviance smaller.**
+
+**(d)** How does $k$-nearest neighbor compare to the penalized methods? Can you explain any difference?
+
+**The penalized models perform much better than the KNN model, I think that's because there are many correlated varaiables in the dataset and the penalized model can reduce dimensions which the KNN cannot do.**
+
+**(e)** Based on your results, which model would you choose? Explain.
+
+**I will choose the first ridge regression model model(lambda = 3.95) because it has the highest accuracy and the lowest accuracy standard deviation among all four models. **
+
+### College
+
+**(f)** Based on the table, which model do you prefer? Justify your answer.
+
+**I will choose the random forest model because it has the lowest test rmse.**
+
+**(g)** For both of the elastic net models, report the best tuning parameters from `caret`. For each, is this ridge, lasso, or somewhere in between? If in between, closer to which?
+
+```{r}
+Elas_add$bestTune
+Elas_twoway$bestTune
+```
+
+**The alphas for these two models are 0.2 and 0.9. They are somewhere between ridge and lasso. 0.2 is closer to ridge and 0.9 is closer to lasso.**
+
+**(h)** Did you scale the predictors when you used KNN? Should you have scaled the predictors when you used KNN?
+
+**Yes. **
+
+**(i)** Of the two KNN models which works better? Can you explain why?
+
+**The first works better. I think the knn model with two-way interaction is more complex and tend to overfit.**
+
+**(j)** What year is this dataset from? What was out-of-state tuition at UIUC at that time?
+
+**1995. 7560.**
+
