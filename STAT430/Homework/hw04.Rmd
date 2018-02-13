@@ -1,0 +1,353 @@
+---
+title: "Homework 04"
+author: "Xinyan Yang"
+date: 'Due: Friday, October 6, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1 (Comparing Classifiers)
+
+**[8 points]** This exercise will use data in [`hw04-trn-data.csv`](hw04-trn-data.csv) and [`hw04-tst-data.csv`](hw04-tst-data.csv) which are train and test datasets respectively. Both datasets contain multiple predictors and a categorical response `y`.
+
+The possible values of `y` are `"dodgerblue"` and `"darkorange"` which we will denote mathematically as $B$ (for blue) and $O$ (for orange). 
+
+Consider four classifiers.
+
+$$
+\hat{C}_1(x) =
+\begin{cases} 
+      B & x_1 > 0 \\
+      O & x_1 \leq 0 
+\end{cases}
+$$
+
+
+$$
+\hat{C}_2(x) =
+\begin{cases} 
+      B & x_2 > x_1 + 1 \\
+      O & x_2 \leq x_1 + 1
+\end{cases}
+$$
+
+$$
+\hat{C}_3(x) =
+\begin{cases} 
+      B & x_2 > x_1 + 1 \\
+      B & x_2 < x_1 - 1 \\
+      O & \text{otherwise}
+\end{cases}
+$$
+
+$$
+\hat{C}_4(x) =
+\begin{cases} 
+      B & x_2 > (x_1 + 1) ^ 2 \\
+      B & x_2 < -(x_1 - 1) ^ 2 \\
+      O & \text{otherwise}
+\end{cases}
+$$
+
+Obtain train and test error rates for these classifiers. Summarize these results using a single well-formatted table.
+
+- Hint: Write a function for each classifier.
+- Hint: The `ifelse()` function may be extremely useful.
+
+**Solution**
+
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+testdata = read_csv("hw04-tst-data.csv")
+traindata = read_csv("hw04-trn-data.csv")
+```
+
+Write a function for each classifier
+```{r}
+class_01 = function(x1, x2, above = "dodgerblue", below = "darkorange") {
+  ifelse(x1 > 0, above, below)
+}
+
+class_02 = function(x1, x2, above = "dodgerblue", below = "darkorange") {
+    ifelse(x2 > x1 + 1, above, below)
+}
+
+class_03 = function(x1, x2, above = "dodgerblue", below = "darkorange") {
+    ifelse(x2 > x1 + 1, above, ifelse(x2 < x1 - 1, above, below))
+}
+
+class_04 = function(x1, x2, above = "dodgerblue", below = "darkorange") {
+    ifelse(x2 > (x1 + 1) ^ 2, above, ifelse(x2 < -(x1 - 1) ^ 2, above, below))
+}
+```
+
+obtain train preditions and test predictions
+
+```{r}
+classifier_list = list(class_01, class_02, class_03, class_04)
+get_pred = function(classifier, x1, x2){
+    prediction = classifier(x1, x2)
+}
+train_pred = lapply(classifier_list, get_pred, x1 = traindata$x1, x2 = traindata$x2)
+test_pred = lapply(classifier_list, get_pred, x1 = testdata$x1, x2 = testdata$x2)
+```
+
+write a function to get the train error and test error
+```{r}
+class_err = function(actual, predicted) {
+  mean(actual != predicted)
+}
+
+train_error = sapply(train_pred, class_err, actual = traindata$y)
+test_error = sapply(test_pred, class_err, actual = testdata$y)
+```
+
+Summarize the results in a table
+```{r}
+classifier_results = data.frame(
+  c("class_01", "class_02", "class_03", "class_04"),
+  train_error,
+  test_error
+)
+colnames(classifier_results) = c("Classifier", "Train Error", "Test error")
+rownames(classifier_results) = NULL
+
+knitr::kable(classifier_results)
+```
+
+
+***
+
+# Exercise 2 (Creating Classifiers with Logistic Regression)
+
+**[8 points]** We'll again use data in [`hw04-trn-data.csv`](hw04-trn-data.csv) and [`hw04-tst-data.csv`](hw04-tst-data.csv) which are train and test datasets respectively. Both datasets contain multiple predictors and a categorical response `y`.
+
+The possible values of `y` are `"dodgerblue"` and `"darkorange"` which we will denote mathematically as $B$ (for blue) and $O$ (for orange). 
+
+Consider classifiers of the form
+
+$$
+\hat{C}(x) =
+\begin{cases} 
+      B & \hat{p}(x) > 0.5 \\
+      O & \hat{p}(x) \leq 0.5
+\end{cases}
+$$
+
+Create (four) classifiers based on estimated probabilities from four logistic regressions. Here we'll define $p(x) = P(Y = B \mid X = x)$. 
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0
+$$
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0 + \beta_1 x_1  + \beta_2 x_2
+$$
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0 + \beta_1 x_1  + \beta_2 x_2 + \beta_3 x_1^2 + \beta_4 x_2^2
+$$
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0 + \beta_1 x_1  + \beta_2 x_2 + \beta_3 x_1^2 + \beta_4 x_2^2 + \beta_5 x_1x_2
+$$
+
+Note that, internally in `glm()`, `R` considers a binary factor variable as `0` and `1` since logistic regression seeks to model $p(x) = P(Y = 1 \mid X = x)$. But here we have `"dodgerblue"` and `"darkorange"`. Which is `0` and which is `1`? Hint: Alphabetically.
+
+Obtain train and test error rates for these classifiers. Summarize these results using a single well-formatted table.
+
+**Solution**
+
+Convert y to a factor and fit these 4 logistic regression model
+
+```{r, message=TRUE}
+traindata$y = as.factor(traindata$y)  ##convert y to a factor and r treats darkorange as 0 (Alphabetically)
+contrasts(as.factor(traindata$y))
+
+glm_1 = glm(y ~ 1, data = traindata, family = "binomial")
+glm_2 = glm(y ~ x1 + x2, data = traindata, family = "binomial")
+glm_3 = glm(y ~ x1 + x2 + I(x1 ^ 2) + I(x2 ^ 2), data = traindata, family = "binomial")
+glm_4 = glm(y ~ x1 + x2 + I(x1 ^ 2) + I(x2 ^ 2) + x1 * x2, data = traindata, family = "binomial")
+```
+
+To obtain classifications, we will need to compare to the correct cutoff value.
+```{r}
+get_pred = function(model, data){
+    ifelse(predict(model, data, type = "link") > 0, "dodgerblue", "darkorange")
+}
+model_list = list(glm_1, glm_2, glm_3, glm_4)
+trn_glm_pred = lapply(model_list, get_pred, data = traindata)
+tst_glm_pred = lapply(model_list, get_pred, data = testdata)
+```
+
+Compute the train error and test error 
+```{r}
+trn_glm_error = vector()
+tst_glm_error = vector()
+
+trn_glm_error = sapply(trn_glm_pred, class_err, actual = traindata$y)
+tst_glm_error = sapply(tst_glm_pred, class_err, actual = testdata$y)
+```
+
+Summarize the results in a table
+```{r}
+glm_results = data.frame(
+  trn_glm_error,
+  tst_glm_error
+)
+colnames(glm_results) = c("Train Error", "Test Error")
+rownames(glm_results) = c("glm_01", "glm_02","glm_03","glm_04")
+
+knitr::kable(glm_results)
+```
+
+***
+
+# Exercise 3 (Bias-Variance Tradeoff, Logistic Regression)
+
+**[8 points]** Run a simulation study to estimate the bias, variance, and mean squared error of estimating $p(x)$ using logistic regression. Recall that
+$p(x) = P(Y = 1 \mid X = x)$.
+
+Consider the (true) logistic regression model
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = 1 + 2 x_1  - x_2
+$$
+
+To specify the full data generating process, consider the following `R` function.
+
+```{r}
+make_sim_data = function(n_obs = 25) {
+  x1 = runif(n = n_obs, min = 0, max = 2)
+  x2 = runif(n = n_obs, min = 0, max = 4)
+  prob = exp(1 + 2 * x1 - 1 * x2) / (1 + exp(1 + 2 * x1 - 1 * x2))
+  y = rbinom(n = n_obs, size = 1, prob = prob)
+  data.frame(y, x1, x2)
+}
+```
+
+So, the following generates one simulated dataset according to the data generating process defined above.
+
+```{r}
+sim_data = make_sim_data()
+```
+
+Evaluate estimates of $p(x_1 = 1, x_2 = 1)$ from fitting three models:
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0
+$$
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0 + \beta_1 x_1  + \beta_2 x_2
+$$
+
+$$
+\log \left( \frac{p(x)}{1 - p(x)} \right) = \beta_0 + \beta_1 x_1  + \beta_2 x_2 + \beta_3 x_1^2 + \beta_4 x_2^2 + \beta_5 x_1x_2
+$$
+
+Use 1000 simulations of datasets with a sample size of 25 to estimate squared bias, variance, and the mean squared error of estimating $p(x_1 = 1, x_2 = 1)$ using $\hat{p}(x_1 = 1, x_2 = 1)$ for each model. Report your results using a well formatted table.
+
+At the beginning of your simulation study, run the following code, but with your nine-digit Illinois UIN.
+
+**Solution**
+```{r}
+set.seed(669675883)
+n_sims = 1000
+n_models = 3
+x = data.frame(x1 = 1, x2 = 1) # fixed point at which we make predictions
+predictions = matrix(0, nrow = n_sims, ncol = n_models)
+```
+
+
+```{r}
+sim_data = make_sim_data()
+predic = vector()
+predic[1] = predict(glm(y ~ 1, data = sim_data, family = "binomial"), x, type = "response")
+predic[2] = predict(glm(y ~ x1 + x2, data = sim_data, family = "binomial"), x, type = "response")
+predic[3] = predict(glm(y ~ x1 + x2 + I(x1 ^ 2) + I(x2 ^ 2) + x1 * x2, 
+                                      data = sim_data, family = "binomial"), x, type = "response")
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(arm)
+for (sim in 1:n_sims) {
+    sim_data = make_sim_data()
+    predictions[sim, 1] = predict(bayesglm(y ~ 1, data = sim_data, family = "binomial", control = list(maxit = 100)), x, type = "response")
+    predictions[sim, 2] = predict(bayesglm(y ~ x1 + x2, data = sim_data, family = "binomial", control = list(maxit = 100)), x, type = "response")
+    predictions[sim, 3] = predict(bayesglm(y ~ x1 + x2 + I(x1 ^ 2) + I(x2 ^ 2) + x1 * x2, data = sim_data, family = "binomial", control = list(maxit = 100)), x, type = "response")
+}
+```
+
+Write several functions to get the bias, variance and mse
+```{r}
+get_mse = function(truth, estimate) {
+  mean((estimate - truth) ^ 2)
+}
+get_bias = function(estimate, truth) {
+  mean(estimate) - truth
+}
+get_var = function(estimate) {
+  mean((estimate - mean(estimate)) ^ 2)
+}
+```
+
+
+```{r}
+truthvalue = exp(1 + 2 * 1 - 1 * 1) / (1 + exp(1 + 2 * 1 - 1 * 1))
+
+bias = apply(predictions, 2, get_bias, truth = truthvalue)
+variance = apply(predictions, 2, get_var)
+mse = apply(predictions, 2, get_mse, truth = truthvalue)
+```
+
+Summarize the results into a table
+```{r}
+sim_results = data.frame(
+  mod = c("mod_01", "mod_02","mod_03"),
+  round(mse, 5),
+  round(bias ^ 2, 5),
+  round(variance, 5)
+)
+colnames(sim_results) = c("Model","Mean Squared Error", "Squared Bias", "Variance")
+rownames(sim_results) = NULL
+
+knitr::kable(sim_results)
+```
+
+
+***
+
+# Exercise 4 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises.
+
+**(a)** Based on your results in Exercise 1, do you believe that the true decision boundaries are linear or non-linear?
+
+**I think the true decision boundaries is non-linear because the classifier 4 has both the smallest train error and test error, which indicates that the boundaries should be non-linear.**
+
+**(b)** Based on your results in Exercise 2, which of these models performs best?
+
+**Model 4 performs best because it has both the samllest train error and test error.**
+
+**(c)** Based on your results in Exercise 2, which of these models are underfitting?
+
+**Model 1, 2 and 3 are all underfitting.**
+
+**(d)** Based on your results in Exercise 2, which of these models are overfitting??
+
+**None of these models is overfitting.**
+
+**(e)** Based on your results in Exercise 3, which models are performing unbiased estimation?
+
+**Both model 2 and model 3 are performing unbiased estimation.**
+
+**(f)** Based on your results in Exercise 3, which of these models performs best?
+
+**I think model 2 performs best because the mean squared error, squared bias and variance are the smallest among these three models.**
+
