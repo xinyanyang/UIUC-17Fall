@@ -1,0 +1,396 @@
+---
+title: "Homework 09"
+author: "Xinyan Yang"
+date: 'Due: Monday, November 20, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+```{r options, include = FALSE}
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+**Please note the altered due date.**
+
+***
+
+# Exercise 1 (Computation Time)
+
+**[8 points]** For this exercise we will create data via simulation, then asses how well certain methods perform. Use the code below to create a train and test dataset.
+
+```{r, message = FALSE, warning = FALSE}
+library(mlbench)
+set.seed(42)
+sim_trn = mlbench.spirals(n = 2500, cycles = 1.5, sd = 0.125)
+sim_trn = data.frame(sim_trn$x, class = as.factor(sim_trn$classes))
+sim_tst = mlbench.spirals(n = 10000, cycles = 1.5, sd = 0.125)
+sim_tst = data.frame(sim_tst$x, class = as.factor(sim_tst$classes))
+```
+
+The training data is plotted below, with colors indicating the `class` variable, which is the response.
+
+```{r, fig.height = 5, fig.width = 5, echo = FALSE}
+sim_trn_col = ifelse(sim_trn$class == 1, "darkorange", "dodgerblue")
+plot(sim_trn$X1, sim_trn$X2, col = sim_trn_col,
+     xlab = "X1", ylab = "X2", pch = 20)
+```
+
+Before proceeding further, set a seed equal to your UIN.
+
+```{r}
+uin = 669675883
+
+set.seed(uin)
+```
+
+We'll use the following to define 5-fold cross-validation for use with `train()` from `caret`.
+
+```{r, message = FALSE, warning = FALSE}
+library(caret)
+cv_5 = trainControl(method = "cv", number = 5)
+```
+
+We now tune two models with `train()`. First, a logistic regression using `glm`. (This actually isn't "tuned" as there are not parameters to be tuned, but we use `train()` to perform cross-validation.) Second we tune a single decision tree using `rpart`.
+
+We store the results in `sim_glm_cv` and `sim_tree_cv` respectively, but we also wrap both function calls with `system.time()` in order to record how long the tuning process takes for each method.
+
+```{r, message = FALSE, warning = FALSE}
+glm_cv_time = system.time({
+  sim_glm_cv  = train(
+    class ~ .,
+    data = sim_trn,
+    trControl = cv_5,
+    method = "glm")
+})
+
+tree_cv_time = system.time({
+  sim_tree_cv = train(
+    class ~ .,
+    data = sim_trn,
+    trControl = cv_5,
+    method = "rpart")
+})
+```
+
+We see that both methods are tuned via cross-validation in a similar amount of time.
+
+```{r}
+glm_cv_time["elapsed"]
+tree_cv_time["elapsed"]
+```
+
+```{r, message = FALSE, warning = FALSE, echio = FALSE}
+library(rpart.plot)
+rpart.plot(sim_tree_cv$finalModel)
+```
+
+Repeat the above analysis using a random forest, twice. The first time use 5-fold cross-validation. (This is how we had been using random forests before we understood random forests.) The second time, tune the model using OOB samples. We only have two predictors here, so, for both, use the following tuning grid.
+
+```{r}
+rf_grid = expand.grid(mtry = c(1, 2))
+```
+
+```{r, message=FALSE, warning=FALSE}
+rf_cv_time = system.time({
+  sim_rf_cv  = train(
+    class ~ .,
+    data = sim_trn,
+    trControl = cv_5,
+    method = "rf",
+    tuneGrid = rf_grid)
+})
+
+rf_oob_time = system.time({
+  sim_rf_oob = train(
+    class ~ .,
+    data = sim_trn,
+    trControl = trainControl(method = "oob"),
+    method = "rf",
+    tuneGrid = rf_grid
+    )
+})
+```
+
+Create a table summarizing the results of these four models. (Logistic with CV, Tree with CV, RF with OOB, RF with CV). Report:
+
+- Chosen value of tuning parameter (If applicable)
+- Elapsed tuning time
+- Resampled (CV or OOB) Accuracy
+- Test Accuracy
+
+```{r}
+model_list = list(sim_glm_cv, sim_tree_cv, sim_rf_cv, sim_rf_oob)
+
+get_best_result = function(caret_fit) {
+    best = which(rownames(caret_fit$results) == rownames(caret_fit$bestTune))
+    best_result = caret_fit$results[best,]
+    rownames(best_result) = NULL
+    best_result
+}
+
+best_results = sapply(model_list, get_best_result) 
+
+best_tune = c(
+    NA,
+    as.numeric(sim_tree_cv$bestTune),
+    as.numeric(sim_rf_cv$bestTune),
+    as.numeric(sim_rf_oob$bestTune)
+    )
+tune_time = c(
+    glm_cv_time["elapsed"], 
+    tree_cv_time["elapsed"], 
+    rf_cv_time["elapsed"], 
+    rf_oob_time["elapsed"]
+    )
+    cv_accuracy = rep(0, 4)
+    tst_accuracy = rep(0, 4)
+
+for (i in 1:4) {
+    cv_accuracy[i] = best_results[[i]]$Accuracy
+    pred = predict(model_list[[i]], newdata = sim_tst)
+    tst_accuracy[i] = mean(sim_tst$class == pred)
+}
+```
+
+```{r}
+results = data.frame(
+  best_tune,
+  tune_time,
+  cv_accuracy,
+  tst_accuracy
+)
+rownames(results) = c("Logistic with CV", 
+                      "Tree with CV", 
+                      "RF with CV", 
+                      "RF with OOB"
+                      )
+
+knitr::kable(results)
+```
+
+
+# Exercise 2 (Predicting Baseball Salaries)
+
+**[7 points]** For this question we will predict the `Salary` of `Hitters`. (`Hitters` is also the name of the dataset.) We first remove the missing data:
+
+```{r}
+library(ISLR)
+Hitters = na.omit(Hitters)
+```
+
+After changing `uin` to your UIN, use the following code to test-train split the data.
+
+```{r}
+uin = 669675883
+set.seed(uin)
+hit_idx = createDataPartition(Hitters$Salary, p = 0.6, list = FALSE)
+hit_trn = Hitters[hit_idx,]
+hit_tst = Hitters[-hit_idx,]
+```
+
+Do the following:
+
+- Tune a boosted tree model using the following tuning grid and 5-fold cross-validation.
+
+```{r}
+gbm_grid = expand.grid(interaction.depth = c(1, 2),
+                       n.trees = c(500, 1000, 1500),
+                       shrinkage = c(0.001, 0.01, 0.1),
+                       n.minobsinnode = 10)
+```
+
+- Tune a random forest using OOB resampling and **all** possible values of `mtry`. 
+
+Create a table summarizing the results of three models:
+
+- Tuned boosted tree model
+- Tuned random forest model
+- Bagged tree model
+
+For each, report:
+
+- Resampled RMSE
+- Test RMSE
+
+```{r}
+oob = trainControl(method = "oob")
+cv_5 = trainControl(method = "cv", number = 5)
+dim(hit_trn)
+rf_grid =  expand.grid(mtry = 1:19)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#tune boosted tree model
+hit_gbm_tune = train(Salary ~ ., data = hit_trn,
+                      method = "gbm",
+                      trControl = cv_5,
+                      verbose = FALSE,
+                      tuneGrid = gbm_grid)
+```
+
+```{r}
+#tune random forest model
+hit_rf_tune = train(Salary ~ ., data = hit_trn,
+                     method = "rf",
+                     trControl = oob,
+                     verbose = FALSE,
+                     tuneGrid = rf_grid)
+```
+
+```{r}
+#tune bagged tree model
+hit_bag_tune = train(Salary ~ ., data = hit_trn,
+                     method = "rf",
+                     trControl = oob,
+                     verbose = FALSE,
+                     tuneGrid = expand.grid(mtry = 19))
+```
+
+```{r}
+get_best_result = function(caret_fit) {
+    best = which(rownames(caret_fit$results) == rownames(caret_fit$bestTune))
+    best_result = caret_fit$results[best,]
+    rownames(best_result) = NULL
+    best_result
+}
+
+calc_rmse = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+```
+
+```{r}
+model_list = list(hit_gbm_tune, hit_rf_tune, hit_bag_tune)
+
+best_results = sapply(model_list, get_best_result) 
+
+resample_rmse = rep(0, 3)
+tst_rmse = rep(0, 3)
+
+for (i in 1:3) {
+    resample_rmse[i] = best_results[[i]]$RMSE
+    pred = predict(model_list[[i]], newdata = hit_tst)
+    tst_rmse[i] = calc_rmse(actual = hit_tst$Salary, predicted = pred)
+}
+```
+
+```{r}
+results2 = data.frame(
+  resample_rmse,
+  tst_rmse
+)
+rownames(results2) = c("Boosted Tree", 
+                      "Random Forest", 
+                      "Bagged Tree"
+                      )
+
+knitr::kable(results2)
+```
+
+
+# Exercise 3 (Transforming the Response)
+
+**[5 points]** Continue with the data from Exercise 2. The book, ISL, suggests log transforming the response, `Salary`, before fitting a random forest. Is this necessary? Re-tune a random forest as you did in Exercise 2, except with a log transformed response. Report test RMSE for both the untransformed and transformed model on the original scale of the response variable. 
+
+```{r, echo = FALSE}
+histogram(hit_trn$Salary, xlab = "Salary")
+```
+
+```{r}
+#tune random forest model with response log transformed
+hit_rf_tune_trans = train(log(Salary) ~ ., data = hit_trn,
+                     method = "rf",
+                     trControl = oob,
+                     verbose = FALSE,
+                     tuneGrid = rf_grid)
+```
+
+```{r}
+preds = exp(predict(hit_rf_tune_trans, newdata = hit_tst))
+tst_rmse_trans = calc_rmse(actual = hit_tst$Salary, predicted = preds)
+tst_rmse[2] ##test rmse with untransformed response 
+tst_rmse_trans ##test rmse with tranformed response
+```
+
+# Exercise 4 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises. 
+
+### Timing
+
+**(a)** Compare the time taken to tune each model. Is the difference between the OOB and CV result for the random forest similar to what you would have expected?
+
+**Yes. The CV took much more time than OOB as it was expected.**
+
+**(b)** Compare the tuned value of `mtry` for each of the random forests tuned. Do they choose the same model?
+
+**Yes. They both choose the model with mtry = 1.**
+
+**(c)** Compare the test accuracy of each of the four procedures considered. Briefly explain these results.
+
+**Random forest performs much better than the logistic model and tree model since it adds randomness to the model which reduces the variance of original tree model. The logistic model performs worst because it assumes a linear relationship between the response and the predictors and if not, it may not provide accurate accuracy. Of the two random forest models, the one with OOB performs a little better than the one with CV. **
+
+### Salary
+
+**(d)** Report the tuned value of `mtry` for the random forest.
+
+```{r}
+hit_rf_tune$bestTune
+```
+
+**(e)** Create a plot that shows the tuning results for the tuning of the boosted tree model.
+
+```{r}
+plot(hit_gbm_tune)
+```
+
+
+**(f)** Create a plot of the variable importance for the tuned random forest.
+
+```{r}
+library(randomForest)
+library(ggplot2)
+hit_rf = randomForest(
+             Salary ~ ., 
+             data = hit_trn, 
+             mtry = 4,
+             importance = TRUE
+             )
+varImpPlot(hit_rf, 
+           sort = TRUE,
+           class = NULL, 
+           scale = TRUE
+           )
+```
+
+
+**(g)** Create a plot of the variable importance for the tuned boosted tree model.
+
+```{r}
+hit_boost = gbm(Salary ~ ., 
+                data = hit_trn, 
+                distribution = "gaussian", 
+                n.trees = 1500, 
+                interaction.depth = 2, 
+                shrinkage = 0.01, 
+                n.minobsinnode = 10)
+
+tibble::as_tibble(summary(hit_boost))
+```
+
+
+**(h)** According to the random forest, what are the three most important predictors?
+
+**According to %IncMSE criteria, CAtBat, CHits and CRuns are the most important ones. According to IncNodePurity, CAtBat, CRBI and CHits are the most important ones.**
+
+**(i)** According to the boosted model, what are the three most important predictors?
+
+**Walks, CRBI and CAtBat are the three most important predictors.**
+
+### Transformation
+
+**(j)** Based on these results, do you think the transformation was necessary?
+
+**NO.**
