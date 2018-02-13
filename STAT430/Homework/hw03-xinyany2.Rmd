@@ -1,0 +1,246 @@
+---
+title: "Homework 03"
+author: "Xinyan Yang"
+date: 'Due: Friday, September 29, 11:59 PM'
+output: pdf_document
+urlcolor: cyan
+---
+
+Please see the [homework instructions document](https://daviddalpiaz.github.io/stat430fa17/homework_policy.html) for detailed instructions and some grading notes. Failure to follow instructions will result in point reductions.
+
+***
+
+# Exercise 1 (Data Scaling)
+
+**[8 points]** This exercise will use data in [`hw03-train-data.csv`](hw03-train-data.csv) and [`hw03-test-data.csv`](hw03-test-data.csv) which are train and test datasets respectively. Both datasets contain multiple predictors and a numeric response `y`.
+
+Fit a total of six $k$-nearest neighbors models. Consider three values of $k$: 1, 5, and 25. To make a total of six models, consider both scaled and unscaled $X$ data. For each model, use all available predictors.
+
+Summarize these results using a single well-formatted table which displays test RMSE, `k`, and whether or not scaling was used.
+
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+testdata = read_csv("hw03-test-data.csv")
+traindata = read_csv("hw03-train-data.csv")
+library(FNN)
+library(MASS)
+```
+
+```{r}
+x_trn = as.data.frame(traindata[, 2:5])
+y_trn = as.data.frame(traindata[, 1])
+x_tst = as.data.frame(testdata[, 2:5])
+y_tst = as.data.frame(testdata[, 1])
+```
+
+Define a function to get the rmse of knn model
+```{r}
+get_rmse_knn = function(x_train,x_test, y_test, y_train, n) {
+    pred = knn.reg(train = x_train, test = x_test, y = y_train, k = n)$pred
+    act = y_test
+    rmse = sqrt(mean((act - pred) ^ 2))
+}
+```
+
+Apply the function to get different rmses with different k and whether scale or not
+```{r}
+m = c(1, 5, 25)
+tst_rmse = sapply(m, get_rmse_knn, x_train = x_trn, x_test = x_tst, y_train=y_trn, y_test = y_tst )
+tst_rmse_scale = sapply(m, get_rmse_knn, x_train = scale(x_trn), x_test = scale(x_tst), y_train=y_trn, y_test = y_tst)
+```
+
+| k | Scaling|       Test RMSE       | 
+|---|--------|-----------------------|
+| 1 |  No    | `r tst_rmse[1]`       |          
+| 1 |  Yes   | `r tst_rmse_scale[1]` | 
+| 5 |  No    | `r tst_rmse[2]`       |
+| 5 |  Yes   | `r tst_rmse_scale[2]` |
+| 25|  No    | `r tst_rmse[3]`       |
+| 25|  Yes   | `r tst_rmse_scale[3]` |
+
+***
+
+# Exercise 2 (KNN versus Linear Models)
+
+**[9 points]** Find a $k$-nearest neighbors model that outperforms an additive linear model for predicting `mpg` in the `Auto` data from the `ISLR` package. Use the following data cleaning and test-train split to perform this analysis. Keep all of the predictor variables as numeric variables. Report the test RMSE for both the additive linear model, as well as your chosen model. For your model, also note what value of $k$ you used, as well as whether or not you scaled the $X$ data.
+
+```{r, message = FALSE}
+library(ISLR)
+auto = Auto[, !names(Auto) %in% c("name")]
+```
+
+```{r, message = FALSE}
+set.seed(42)
+auto_idx = sample(1:nrow(auto), size = round(0.5 * nrow(auto)))
+auto_trn = auto[auto_idx, ]
+auto_tst = auto[-auto_idx, ]
+```
+
+The additive linear model can be fit using:
+```{r, eval = FALSE}
+fit_lm = lm(mpg ~ ., data = auto_trn)
+
+rmse_auto_lm = sqrt(mean((auto_tst["mpg"] - predict(fit_lm, auto_tst[, 2:8])) ^ 2))
+rmse_auto_lm
+```
+
+**Solution**
+
+```{r}
+summary(auto)
+par(mfrow = c(1, 2))
+plot( displacement ~ weight, data = auto, pch = 20, col = c(rep("grey", 45), rep("darkorange", 5)))
+points(1.7, 10)
+plot( scale(displacement) ~ scale(weight), data = auto, pch = 20, col = c(rep("grey", 45), rep("darkorange", 5)))
+points((1.7 - 1.197685) / 0.6072974, (10 - 5) / 2.974975)
+```
+
+From the above plots, we can find that it is necessary to perform scaling on the variable dispalcement and weight, because these two variables have very large range compared to the other factors. And after the scale, the range of these two variables would shrink a lot.
+
+Fit several k-nearest neighbors model with different k.
+```{r}
+k_try = c(1, 5, 6, 7, 10)
+rmse_auto_knn = sapply(k_try, 
+                       get_rmse_knn, 
+                       x_train = auto_trn[,2:8], 
+                       x_test = auto_tst[, 2:8], 
+                       y_train = auto_trn["mpg"], 
+                       y_test = auto_tst["mpg"] 
+                       )
+
+rmse_auto_knn_scale = sapply(k_try, 
+                             get_rmse_knn, 
+                             x_train = scale(auto_trn[,2:8]), 
+                             x_test = scale(auto_tst[, 2:8]), 
+                             y_train=auto_trn["mpg"], 
+                             y_test = auto_tst["mpg"] )
+```
+
+Let's summary all results in a table
+
+| Model | k | Scale|       Test RMSE           | 
+|-------|---|------|---------------------------|
+|Linear | no|  No  | 3.068489                  |
+| KNN   | 1 |  No  | `r rmse_auto_knn[1]`      |          
+| KNN   | 5 |  No  | `r rmse_auto_knn[2]`      |
+| KNN   | 6 |  No  | `r rmse_auto_knn[3]`      |
+| KNN   | 7 |  No  | `r rmse_auto_knn[4]`      |
+| KNN   | 10|  No  | `r rmse_auto_knn[5]`      |
+| KNN   | 1 |  Yes | `r rmse_auto_knn_scale[1]`|
+| KNN   | 5 |  Yes | `r rmse_auto_knn_scale[2]`|
+| KNN   | 6 |  Yes | `r rmse_auto_knn_scale[3]`|
+| KNN   | 7 |  Yes | `r rmse_auto_knn_scale[4]`|
+| KNN   | 10|  Yes | `r rmse_auto_knn_scale[5]`|
+
+We can find that if we don't scale the x, the smallest rmse would be 3.94 when k = 5, but this is larger than the rmse of linear model which is 3.07. 
+However, after we scale the factors, **the smallest rmse would be 2.86 when k = 6**, which performs better than the linear model. 
+
+**In conclusion**, we should scale the X data because some variables have very large range and it will cause an effect on the model performance as we tested above. After scaling the X data, the best k for fit a KNN model for the auto data would be 6, and its RMSE would be 2.86, which is smaller than the rmse of linear model.
+
+
+# Exercise 3 (Bias-Variance Tradeoff, KNN)
+
+**[8 points]** Run a modified version of the simulation study found in [Section 8.3 of R4SL](https://daviddalpiaz.github.io/r4sl/biasvariance-tradeoff.html#simulation). Use the same data generating process to simulate data:
+
+```{r}
+f = function(x) {
+  x ^ 2
+}
+```
+
+```{r}
+get_sim_data = function(f, sample_size = 100) {
+  x = runif(n = sample_size, min = 0, max = 1)
+  y = rnorm(n = sample_size, mean = f(x), sd = 0.3)
+  data.frame(x, y)
+}
+```
+
+
+Evaluate predictions of $f(x = 0.90)$ for three models:
+
+- $k$-nearest neighbors with $k = 1$. $\hat{f}_1(x)$
+- $k$-nearest neighbors with $k = 10$. $\hat{f}_{10}(x)$
+- $k$-nearest neighbors with $k = 100$. $\hat{f}_{100}(x)$
+
+For simplicity, when fitting the $k$-nearest neighbors models, do not scale $X$ data.
+
+Use 500 simulations to estimate squared bias, variance, and the mean squared error of estimating $f(0.90)$ using $\hat{f}_k(0.90)$ for each $k$. Report your results using a well formatted table.
+
+**Solution**
+
+```{r}
+set.seed(669675883)
+n_sims = 500
+n_models = 3
+x = data.frame(x = 0.90) # fixed point at which we make predictions
+predictions = matrix(0, nrow = n_sims, ncol = n_models)
+```
+
+```{r}
+for (sim in 1:n_sims){
+    sim_data = get_sim_data(f)
+    predictions[sim, 1] = knn.reg(train = sim_data["x"], test = x, y = sim_data["y"], k = 1)$pred
+    predictions[sim, 2] = knn.reg(train = sim_data["x"], test = x, y = sim_data["y"], k = 10)$pred
+    predictions[sim, 3] = knn.reg(train = sim_data["x"], test = x, y = sim_data["y"], k = 100)$pred
+}
+```
+
+Write several functions to get the mse, bias and variance.
+
+```{r}
+get_mse = function(truth, estimate) {
+  mean((estimate - truth) ^ 2)
+}
+get_bias = function(estimate, truth) {
+  mean(estimate) - truth
+}
+get_var = function(estimate) {
+  mean((estimate - mean(estimate)) ^ 2)
+}
+```
+```{r}
+bias = apply(predictions, 2, get_bias, truth = f(x = 0.90))
+variance = apply(predictions, 2, get_var)
+mse = apply(predictions, 2, get_mse, truth = f(x = 0.90))
+```
+
+Summarize into a table 
+```{r, echo = FALSE, asis = TRUE}
+results = data.frame(
+  k = c(1, 10, 100),
+  round(mse, 5),
+  round(bias ^ 2, 5),
+  round(variance, 5)
+)
+colnames(results) = c("k", "Mean Squared Error", "Bias Squared", "Variance")
+rownames(results) = NULL
+knitr::kable(results, booktabs = TRUE, escape = TRUE)
+```
+
+***
+
+# Exercise 4 (Concept Checks)
+
+**[1 point each]** Answer the following questions based on your results from the three exercises.
+
+**(a)** Based on your results in Exercise 1, which $k$ performed best?
+
+**When k = 25, after we scaling the data , we got the smallest rmse, which is 0.5081, therefore k=25 performed best.**
+
+**(b)** Based on your results in Exercise 1, was scaling the data appropriate?
+
+**I think it's approriate to perform the data scaling, because after the scaling, we get a smallest test RMSE among all the six models.**
+
+**(c)** Based on your results in Exercise 2, why do you think it was so easy to find a $k$-nearest neighbors model that met this criteria?
+
+**I think it's because the knn is nonparametric model, so it  can predict more accurately than linear model. Also, in this exercise , the data size is small, so we can easily find a knn model that met this criteria.**
+
+**(d)** Based on your results in Exercise 3, which of the three models do you think are providing unbiased predictions?
+
+**Model 1 and 2 both gets unbiaed predictions, in which k are 1 and 10. **
+
+**(e)** Based on your results in Exercise 3, which model is predicting best at $x = 0.90$?
+
+**Model 2 predicts best because the squared bias, mean squared error and variance are all at a low level. So we can infer that k=10 is a trade-off value.**
+
